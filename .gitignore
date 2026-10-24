@@ -10,3 +10,5 @@ captures/
 # Nunca versione chaves de assinatura
 *.jks
 *.keystore
+
+.gh-auth*.log
