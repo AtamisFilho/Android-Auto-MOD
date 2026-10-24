@@ -28,6 +28,24 @@ evidence:
     - highest allocated cluster is 1439 of 524288
 ```
 
+## Downloads
+
+Standalone binaries are published with every release:
+
+| Platform | File | Notes |
+| --- | --- | --- |
+| Windows x64 | `lostpart-windows-x64.exe` | Single file, no Python needed. Run as administrator for raw disk access. |
+| Linux x64 | `lostpart-linux-x64` | Static `x86_64-linux-musl` ELF. No Python and no libc dependency. |
+
+```bash
+chmod +x lostpart-linux-x64
+./lostpart-linux-x64 --help
+```
+
+The Linux binary unpacks itself into `~/.cache/lostpart/<version>/` on the
+first run and reuses that copy afterwards.  Get them from the
+[releases page](https://github.com/AtamisFilho/testes/releases).
+
 ## Why it is trustworthy
 
 A filesystem that happens to contain the bytes `NTFS    ` somewhere is not a
@@ -212,8 +230,16 @@ lostpart/
 ├── recover/           writing the entry back
 │   ├── writer.py      MBR and GPT entry writing
 │   └── backup.py      backup and restore
-└── browse/            previewing a recovered partition
-    └── lister.py      internal and native browsing
+├── browse/            previewing a recovered partition
+│   └── lister.py      internal and native browsing
+├── scripts/           build and release tooling
+│   ├── build.py         builds the Windows and Linux binaries
+│   ├── launcher.c       the static ELF launcher for the Linux build
+│   ├── lostpart_main.py entry point of the packaged builds
+│   └── verify_release.py checks the produced artefacts
+├── tests/             the test suite
+├── BUILDING.md        how to build the binaries
+└── CHANGELOG.md       what changed in each release
 ```
 
 ## Development
@@ -227,6 +253,9 @@ The test suite builds synthetic disk images — MBR sectors, GPT disks with
 both copies, and a complete NTFS volume with a real `$MFT` and `$Bitmap` —
 and exercises the scanner, the bitmap matcher and the writers against them.
 No physical disk is ever touched by the tests.
+
+To produce the standalone binaries, see [BUILDING.md](BUILDING.md).
+The [changelog](CHANGELOG.md) lists what changed in each release.
 
 ## License
 
