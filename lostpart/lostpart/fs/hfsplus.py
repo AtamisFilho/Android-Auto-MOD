@@ -46,8 +46,12 @@ FS_TYPE: Final = "hfsplus"
 # On-disk constants (TN1150)
 # --------------------------------------------------------------------------
 
-#: Size of the volume header region that is read.
-HFSPLUS_VOLUME_HEADER_SIZE: Final = 1024
+#: Offset of the ``version`` field inside the volume header.  TN1150 lays the
+#: header out as ``signature`` (2 bytes) followed by ``version`` (2 bytes),
+#: so the version sits at byte 2 of the header (absolute offset 1026).  The
+#: project constant ``HFSPLUS_VERSION_OFFSET`` (1025) points at the *last
+#: byte of the signature*, so it is only used as a fallback.
+HFSPLUS_VERSION_FIELD_OFFSET: Final = 2
 #: Legal allocation block sizes.
 HFSPLUS_MIN_BLOCK_SIZE: Final = 512
 HFSPLUS_MAX_BLOCK_SIZE: Final = 1048576
@@ -178,7 +182,12 @@ def _read_volume_header(ctx: ProbeContext) -> _VolumeHeader | None:
     if signature != HFSPLUS_SIGNATURE:
         return None
 
-    version = _u16(raw, HFSPLUS_VERSION_OFFSET - HFSPLUS_SIGNATURE_OFFSET)
+    version = _u16(raw, HFSPLUS_VERSION_FIELD_OFFSET)
+    if version not in (HFSPLUS_VERSION_4, HFSPLUS_VERSION_5):
+        # Fall back to the offset used by the project constants.
+        fallback = _u16(raw, HFSPLUS_VERSION_OFFSET - HFSPLUS_SIGNATURE_OFFSET)
+        if fallback in (HFSPLUS_VERSION_4, HFSPLUS_VERSION_5):
+            version = fallback
     if version is None or version not in (HFSPLUS_VERSION_4, HFSPLUS_VERSION_5):
         return None
 
@@ -507,9 +516,18 @@ def _parse_catalog_record(raw: bytes) -> _CatalogRecord | None:
 
     size = 0
     if record_type == HFSPLUS_CATALOG_FILE_RECORD:
+        expected = HFSPLUS_CATALOG_FILE_RECORD_SIZE
         logical_size = _u64(data, HFSPLUS_CATALOG_FILE_OFF_DATA_FORK)
         if logical_size is not None:
             size = logical_size
+    elif record_type == HFSPLUS_CATALOG_FOLDER_RECORD:
+        expected = HFSPLUS_CATALOG_FOLDER_RECORD_SIZE
+    else:
+        expected = 0
+    if expected and len(data) < expected:
+        logger.debug(
+            "hfsplus: truncated catalog record (%d bytes, expected %d)", len(data), expected
+        )
 
     modified = float(mod_date - HFSPLUS_EPOCH_OFFSET) if mod_date else None
     return _CatalogRecord(

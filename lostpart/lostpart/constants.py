@@ -302,7 +302,10 @@ SWAP_OFF_UUID = 0x34
 
 HFSPLUS_SIGNATURE = b"H+"        # at offset 1024
 HFSPLUS_SIGNATURE_OFFSET = 1024
-HFSPLUS_VERSION_OFFSET = 1025
+#: TN1150 places the UInt16 version at offset 2 of the volume header, which
+#: is absolute offset 1026 -- not 1025, which is the last byte of the
+#: two byte signature.
+HFSPLUS_VERSION_OFFSET = 1026
 HFSPLUS_BLOCK_SIZE_OFFSET = 1024 + 40
 HFSPLUS_TOTAL_BLOCKS_OFFSET = 1024 + 44
 HFSPLUS_MAGIC_OFFSET = 1024 + 1028  # HFSPLUS_MAGIC = 0x482B

@@ -80,7 +80,7 @@ def _magic_form(page: bytes, offset: int) -> str | None:
     compared with the ASCII signatures first; the numeric constants are then
     accepted in both byte orders so that the check is unambiguous.
     """
-    chunk = page[offset : offset + len(SWAP_SIGNATURE)]
+    chunk = page[offset + SWAP_OFF_MAGIC : offset + SWAP_OFF_MAGIC + len(SWAP_SIGNATURE)]
     if len(chunk) < 4:
         return None
     if chunk.startswith(SWAP_SIGNATURE):
@@ -130,7 +130,12 @@ class _SwapHeader:
 
 
 def _parse_header(page: bytes, offset: int) -> _SwapHeader | None:
-    """Parse the swap header that starts at ``offset`` of ``page``."""
+    """Parse the swap header that starts at ``offset`` of ``page``.
+
+    Fields that lie outside the first page -- which happens for the
+    alternative offset 4086, where only the signature itself is stored --
+    are reported as unknown (``None``) instead of being guessed.
+    """
     form = _magic_form(page, offset)
     if form is None:
         return None
@@ -140,8 +145,6 @@ def _parse_header(page: bytes, offset: int) -> _SwapHeader | None:
     nr_clusters = _u32(page, offset + SWAP_OFF_NR_CLUSTERS)
     page_size = _u32(page, offset + SWAP_OFF_PAGE_SIZE)
     flags = _u32(page, offset + SWAP_OFF_FLAGS)
-    if version is None or last_page is None or nr_clusters is None:
-        return None
 
     label = _printable(
         page[offset + SWAP_OFF_VOLUME_LABEL : offset + SWAP_OFF_VOLUME_LABEL + SWAP_LABEL_SIZE]
@@ -228,6 +231,9 @@ def detect(ctx: ProbeContext) -> ProbeResult | None:
     elif header.version == SWAP_VERSION_1:
         evidence.append("swap header version 1")
         confidence += 0.30
+    elif header.version is None:
+        evidence.append("swap header version is not stored in the first page")
+        confidence += 0.25
     else:
         evidence.append(f"unexpected swap header version {header.version}")
         confidence = min(confidence + 0.10, 0.70)
