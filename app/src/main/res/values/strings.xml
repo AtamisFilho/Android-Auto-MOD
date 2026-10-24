@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Aircross Cockpit</string>
+
+    <!-- MainActivity -->
+    <string name="subtitle">Seu app exclusivo para o Android Auto do C4 Aircross</string>
+    <string name="section_permissions">1 · Permissões</string>
+    <string name="perm_video">Vídeos (biblioteca do aparelho)</string>
+    <string name="perm_audio">Músicas e áudios</string>
+    <string name="perm_notif">Notificações (controles de mídia)</string>
+    <string name="btn_grant">Conceder permissões</string>
+    <string name="status_ok">✔ concedida</string>
+    <string name="status_missing">✖ pendente</string>
+
+    <string name="section_library">2 · Biblioteca encontrada</string>
+    <string name="btn_scan">Escanear novamente</string>
+    <string name="scan_hint">Vídeos, músicas e mídias do WhatsApp aparecem aqui.</string>
+
+    <string name="section_car">3 · No carro</string>
+    <string name="car_step1">1. Conecte o celular por cabo USB-C (cabo de dados) — o Android Auto abre sozinho.</string>
+    <string name="car_step2">2. Na lista de apps da tela do carro, toque em \u201CAircross Cockpit\u201D para ver os vídeos (com o carro parado).</string>
+    <string name="car_step3">3. Para ouvir músicas, procure \u201CAircross Cockpit\u201D na lista de apps de mídia (junto ao Spotify).</string>
+    <string name="switch_no_sensor">Permitir vídeo mesmo sem sensor de velocidade (não recomendado)</string>
+
+    <string name="section_test">4 · Testar no celular</string>
+    <string name="btn_test">Abrir testador de mídia</string>
+    <string name="test_hint">Reproduza qualquer vídeo/áudio da biblioteca para validar antes de ir ao carro.</string>
+
+    <string name="footer_note">Guia completo de compilação e instalação no README.md do projeto.</string>
+    <string name="btn_back">Voltar</string>
+</resources>

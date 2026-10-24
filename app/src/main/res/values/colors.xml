@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="amber">#FFB300</color>
+    <color name="amber_dark">#FF8F00</color>
+    <color name="bg_dark">#121212</color>
+    <color name="surface_dark">#1E1E1E</color>
+    <color name="text_primary">#FAFAFA</color>
+    <color name="text_secondary">#BDBDBD</color>
+    <color name="ic_launcher_background">#FF6F00</color>
+</resources>
