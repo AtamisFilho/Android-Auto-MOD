@@ -2,13 +2,15 @@ package com.atamisfilho.aircrosscockpit.car
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.Handler
+import android.os.Looper
 import androidx.car.app.CarContext
+import androidx.car.app.Screen
 import androidx.car.app.model.Action
 import androidx.car.app.model.ItemList
 import androidx.car.app.model.ListTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
-import androidx.car.app.screen.Screen
 import androidx.core.content.ContextCompat
 import com.atamisfilho.aircrosscockpit.media.MediaEntry
 import com.atamisfilho.aircrosscockpit.media.MediaKind
@@ -24,8 +26,24 @@ class FolderScreen(
     private val folderId: String,
 ) : Screen(carContext) {
 
+    private val main = Handler(Looper.getMainLooper())
+
     override fun onGetTemplate(): Template {
         val folder = MediaRegistry.folder(folderId)
+
+        // Scan ainda não terminou → carregando + dispara em background.
+        if (!MediaRegistry.isScanned()) {
+            Thread {
+                runCatching { MediaRegistry.ensureScanned(carContext) }
+                main.post { runCatching { invalidate() } }
+            }.start()
+            return ListTemplate.Builder()
+                .setHeaderAction(Action.BACK)
+                .setTitle(folder?.title ?: "Arquivos")
+                .setLoading(true)
+                .build()
+        }
+
         val entries = runCatching {
             MediaRegistry.entries(folderId, carContext).take(100)
         }.getOrDefault(emptyList())
@@ -46,7 +64,7 @@ class FolderScreen(
                 list.addItem(
                     Row.Builder()
                         .setTitle(entry.title)
-                        .setSubtitle(subtitleFor(entry))
+                        .addText(subtitleFor(entry))
                         .setImage(CarIcons.forEntry(carContext, entry))
                         .setOnClickListener { onEntryClicked(entries, entry) }
                         .build()
@@ -67,7 +85,7 @@ class FolderScreen(
         // Vídeo começa tocando apenas se o carro estiver parado.
         val autoPlay = !isVideo || MotionGate.videoAllowed()
         VideoPlayerController.playQueue(entries, index, autoPlay = autoPlay)
-        push(PlayerScreen(carContext, folderId))
+        screenManager.push(PlayerScreen(carContext, folderId))
     }
 
     private fun subtitleFor(entry: MediaEntry): String {

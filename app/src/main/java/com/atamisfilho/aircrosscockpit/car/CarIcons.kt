@@ -11,7 +11,7 @@ import com.atamisfilho.aircrosscockpit.media.MediaKind
 object CarIcons {
 
     fun fromRes(carContext: CarContext, resId: Int): CarIcon =
-        CarIcon.Builder(IconCompat.createFromResource(carContext, resId)).build()
+        CarIcon.Builder(IconCompat.createWithResource(carContext, resId)).build()
 
     fun forFolder(carContext: CarContext, folderId: String): CarIcon = when (folderId) {
         "wa_video", "wa_audio" -> fromRes(carContext, R.drawable.ic_folder_wa)
