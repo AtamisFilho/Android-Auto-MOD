@@ -8,15 +8,20 @@ Commands::
     lostpart browse  --device N ...    list the files of a recovered partition
     lostpart backup  --device N        save the partition table structures
     lostpart restore --device N        restore a saved partition table
+
+Started without a command the tool opens an interactive menu, so a double
+click on the executable does something useful instead of closing at once.
 """
 
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import logging
 import sys
 import time
+from contextlib import redirect_stdout
 from pathlib import Path
 
 from . import __version__
@@ -64,42 +69,63 @@ def _print_table(rows: list[list[str]], headers: list[str]) -> None:
         print("  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)))
 
 
+def _capture(function, *args, **kwargs) -> str:
+    """Run a printing function and return everything it printed."""
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        function(*args, **kwargs)
+    return buffer.getvalue()
+
+
+def io_table(rows: list[list[str]]) -> str:
+    """Render a table the same way :func:`_print_table` does, as text."""
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        _print_table(rows, ["#", "start", "sectors", "size", "type", "boot", "kind"])
+    return buffer.getvalue()
+
+
 # --------------------------------------------------------------------------
-# Commands
+# Core operations, shared by the command line and the interactive menu
 # --------------------------------------------------------------------------
 
 
-def cmd_list(args: argparse.Namespace) -> int:
-    """List the disks of the machine and their partition tables."""
-    if args.device:
-        devices = [open_device(args.device, read_only=True)]
+def list_devices_text(device_spec: str | None = None) -> str:
+    """Return the listing of the disks and their partition tables."""
+    from .device import list_physical_devices
+
+    if device_spec:
+        devices = [open_device(device_spec, read_only=True)]
     else:
-        from .device import list_physical_devices
-
         devices = list_physical_devices()
 
     if not devices:
-        print("no physical disk could be opened (are you running elevated?)")
-        return 1
+        return "no physical disk could be opened (are you running elevated?)"
 
+    chunks: list[str] = []
     for device in devices:
         try:
             table = load_partition_table(device)
         except LostPartError as exc:
-            print(f"{device.path}: {exc}")
+            chunks.append(f"{device.path}: {exc}")
             continue
-        print(f"\n=== {device.path} ===")
-        print(f"size    : {device.size} bytes ({device.total_sectors} sectors "
-              f"of {device.sector_size} bytes)")
+        lines = [f"=== {device.path} ==="]
+        lines.append(
+            f"size    : {device.size} bytes ({device.total_sectors} sectors "
+            f"of {device.sector_size} bytes)"
+        )
         if table is None:
-            print("table   : none")
+            lines.append("table   : none")
+            chunks.append("\n".join(lines))
             continue
-        print(f"table   : {table.kind.upper()}")
+        lines.append(f"table   : {table.kind.upper()}")
         if table.kind == TABLE_TYPE_GPT and table.gpt_header is not None:
             header = table.gpt_header
-            print(f"disk GUID: {header.disk_guid}")
-            print(f"header CRC valid: {table.header_crc_valid}, "
-                  f"entry array CRC valid: {table.entry_array_crc_valid}")
+            lines.append(f"disk GUID: {header.disk_guid}")
+            lines.append(
+                f"header CRC valid: {table.header_crc_valid}, "
+                f"entry array CRC valid: {table.entry_array_crc_valid}"
+            )
         rows = []
         for entry in table.sorted_by_start():
             rows.append([
@@ -111,8 +137,129 @@ def cmd_list(args: argparse.Namespace) -> int:
                 "yes" if entry.bootable else "",
                 "logical" if entry.is_logical else "",
             ])
-        _print_table(rows, ["#", "start", "sectors", "size", "type", "boot", "kind"])
+        buffer = io_table(rows)
+        lines.append(buffer)
+        chunks.append("\n".join(lines))
         device.close()
+    return "\n\n".join(chunks)
+
+
+def format_scan_result(result, device_path: str) -> str:
+    """Render the outcome of a scan as text."""
+    lines = [
+        f"device : {device_path}",
+        f"table  : {result.table_type.upper()}",
+        f"mode   : {result.mode}",
+        f"time   : {result.elapsed_seconds:.1f}s",
+        f"free   : {len(result.regions)} region(s), "
+        f"{_human_size(result.bytes_scanned)} examined",
+    ]
+    if not result.candidates:
+        lines.append("")
+        lines.append("no lost partition was found")
+        return "\n".join(lines)
+
+    rows = []
+    for candidate in result.candidates:
+        rows.append([
+            str(candidate.start_sector),
+            str(candidate.sector_count),
+            _human_size(candidate.size_bytes),
+            candidate.fs_type,
+            f"{candidate.confidence * 100:.0f}%",
+            candidate.source,
+        ])
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        _print_table(rows, ["start", "sectors", "size", "filesystem", "conf", "evidence"])
+    lines.append("")
+    lines.append(buffer.getvalue().rstrip())
+    lines.append("")
+    lines.append("evidence:")
+    for candidate in result.candidates:
+        lines.append(f"  sector {candidate.start_sector} ({candidate.fs_type}):")
+        for item in candidate.evidence:
+            lines.append(f"    - {item}")
+    return "\n".join(lines)
+
+
+def scan_device_text(device_spec: str, mode: str = SCAN_MODE_FULL,
+                     as_json: bool = False) -> str:
+    """Scan a device and return the report."""
+    device = open_device(device_spec, read_only=True)
+    try:
+        table = load_partition_table(device)
+        if table is None:
+            raise LostPartError("the disk has no partition table to scan around")
+        result = scan_disk(device, table, mode=mode)
+        if as_json:
+            return json.dumps(result.to_dict(), indent=2)
+        return format_scan_result(result, str(getattr(device, "path", device_spec)))
+    finally:
+        device.close()
+
+
+def browse_partition_text(device_spec: str, start: str, path: str = "") -> str:
+    """List the contents of a partition and return the report."""
+    device = open_device(device_spec, read_only=True)
+    try:
+        candidate = LostPartitionCandidate(
+            start_sector=int(start),
+            sector_count=0,
+            fs_type="",
+            label="",
+            confidence=1.0,
+        )
+        parts = tuple(part for part in (path or "").split("/") if part)
+        result = list_partition(device, candidate, parts)
+        rows = []
+        for entry in result.entries:
+            rows.append([
+                "d" if entry.is_dir else "-",
+                entry.name,
+                "" if entry.is_dir else _human_size(entry.size),
+            ])
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            _print_table(rows, ["type", "name", "size"])
+        return "\n".join([
+            f"filesystem : {result.fs_type}",
+            f"method     : {result.method}",
+            "",
+            buffer.getvalue().rstrip(),
+        ])
+    finally:
+        device.close()
+
+
+def backup_table_text(device_spec: str, output: str) -> str:
+    """Back up the partition table of a device and return the report."""
+    device = open_device(device_spec, read_only=True)
+    try:
+        table = load_partition_table(device)
+        if table is None:
+            raise LostPartError("the disk has no partition table")
+        path = Path(output)
+        if path.parent and str(path.parent) not in ("", "."):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        backup = create_backup(device, table, path,
+                               device_id=str(getattr(device, "path", device_spec)))
+        return (
+            f"backup written to {backup.path} "
+            f"({len(backup.chunks)} chunk(s), {backup.kind.upper()} table)"
+        )
+    finally:
+        device.close()
+
+
+# --------------------------------------------------------------------------
+# Commands
+# --------------------------------------------------------------------------
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    """List the disks of the machine and their partition tables."""
+    print(list_devices_text(args.device))
     return 0
 
 
@@ -151,40 +298,13 @@ def cmd_scan(args: argparse.Namespace) -> int:
             checkpoint.set_status(
                 checkpoint_id, STATUS_CANCELLED if result.cancelled else STATUS_DONE
             )
+        if checkpoint is not None:
+            checkpoint.close()
 
         if args.json:
             print(json.dumps(result.to_dict(), indent=2))
         else:
-            print(f"\ndevice : {getattr(device, 'path', args.device)}")
-            print(f"table  : {result.table_type.upper()}")
-            print(f"mode   : {result.mode}")
-            print(f"time   : {result.elapsed_seconds:.1f}s")
-            print(f"free   : {len(result.regions)} region(s), "
-                  f"{_human_size(result.bytes_scanned)} examined")
-            if not result.candidates:
-                print("\nno lost partition was found")
-            else:
-                rows = []
-                for candidate in result.candidates:
-                    rows.append([
-                        str(candidate.start_sector),
-                        str(candidate.sector_count),
-                        _human_size(candidate.size_bytes),
-                        candidate.fs_type,
-                        f"{candidate.confidence * 100:.0f}%",
-                        candidate.source,
-                    ])
-                _print_table(
-                    rows,
-                    ["start", "sectors", "size", "filesystem", "conf", "evidence"],
-                )
-                print("\nevidence:")
-                for candidate in result.candidates:
-                    print(f"  sector {candidate.start_sector} ({candidate.fs_type}):")
-                    for item in candidate.evidence:
-                        print(f"    - {item}")
-        if checkpoint is not None:
-            checkpoint.close()
+            print(format_scan_result(result, str(getattr(device, "path", args.device))))
         return 0
     finally:
         device.close()
@@ -201,8 +321,8 @@ def cmd_recover(args: argparse.Namespace) -> int:
 
         fs_type = args.fs
         if fs_type is None:
-            from .fs.base import ProbeContext
             from .fs import registry
+            from .fs.base import ProbeContext
 
             ctx = ProbeContext(
                 device=device,
@@ -232,12 +352,12 @@ def cmd_recover(args: argparse.Namespace) -> int:
             print("\nre-run with --apply to write the change to the disk")
             return 0
 
-        backup_path = None
         if not args.no_backup:
             backup_dir = Path(args.backup_dir)
             backup_dir.mkdir(parents=True, exist_ok=True)
             stamp = time.strftime("%Y%m%d-%H%M%S")
-            backup_path = backup_dir / f"{getattr(device, 'path', 'disk').replace(':', '')}-{stamp}.json"
+            name = str(getattr(device, "path", "disk")).replace(":", "").replace("\\", "_")
+            backup_path = backup_dir / f"{name}-{stamp}.json"
             backup = create_backup(device, table, backup_path,
                                    device_id=str(getattr(device, "path", args.device)))
             print(f"backup written to {backup.path}")
@@ -245,8 +365,6 @@ def cmd_recover(args: argparse.Namespace) -> int:
         outcome = recover_partition(device, candidate, table, bootable=args.bootable,
                                    dry_run=False)
         print(outcome.message)
-        if outcome.backup_path:
-            print(f"backup: {outcome.backup_path}")
         return 0 if outcome.success else 1
     finally:
         device.close()
@@ -284,10 +402,6 @@ def cmd_browse(args: argparse.Namespace) -> int:
                 ],
             }, indent=2))
             return 0
-        print(f"filesystem : {result.fs_type}")
-        print(f"method     : {result.method}")
-        if result.mount_point:
-            print(f"mount point: {result.mount_point}")
         rows = []
         for entry in result.entries:
             rows.append([
@@ -303,21 +417,8 @@ def cmd_browse(args: argparse.Namespace) -> int:
 
 def cmd_backup(args: argparse.Namespace) -> int:
     """Save the partition table structures of a disk."""
-    device = open_device(args.device, read_only=True)
-    try:
-        table = load_partition_table(device)
-        if table is None:
-            print("the disk has no partition table", file=sys.stderr)
-            return 1
-        path = Path(args.output)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        backup = create_backup(device, table, path,
-                               device_id=str(getattr(device, "path", args.device)))
-        print(f"backup written to {backup.path} "
-              f"({len(backup.chunks)} chunk(s), {backup.kind.upper()} table)")
-        return 0
-    finally:
-        device.close()
+    print(backup_table_text(args.device, args.output))
+    return 0
 
 
 def cmd_restore(args: argparse.Namespace) -> int:
@@ -341,11 +442,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="lostpart",
         description="Identify and recover lost disk partitions.",
+        epilog="Started without a command, lostpart opens an interactive menu.",
     )
     parser.add_argument("--version", action="version", version=f"lostpart {__version__}")
     parser.add_argument("-v", "--verbose", action="count", default=0,
                         help="increase the log level")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
 
     p_list = sub.add_parser("list", help="list disks and partition tables")
     p_list.add_argument("--device", help="device to inspect (default: all)")
@@ -407,14 +509,27 @@ def main(argv: list[str] | None = None) -> int:
     elif args.verbose >= 2:
         level = logging.DEBUG
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
+
+    from .interactive import console_is_orphaned, pause, run_interactive
+
+    orphaned = console_is_orphaned()
     try:
-        return int(args.func(args))
+        if not hasattr(args, "func"):
+            # No command: open the interactive menu so a double click on the
+            # executable does something visible.
+            code = run_interactive()
+        else:
+            code = int(args.func(args))
     except LostPartError as exc:
         print(f"error: {exc}", file=sys.stderr)
-        return 2
+        code = 2
     except KeyboardInterrupt:
         print("interrupted", file=sys.stderr)
-        return 130
+        code = 130
+    finally:
+        if orphaned:
+            pause()
+    return code
 
 
 if __name__ == "__main__":  # pragma: no cover

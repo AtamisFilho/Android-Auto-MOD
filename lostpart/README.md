@@ -34,7 +34,8 @@ Standalone binaries are published with every release:
 
 | Platform | File | Notes |
 | --- | --- | --- |
-| Windows x64 | `lostpart-windows-x64.exe` | Single file, no Python needed. Run as administrator for raw disk access. |
+| Windows x64 | `lostpart-installer.exe` | **Recommended.** Installer wizard, no administrator rights needed. |
+| Windows x64 | `lostpart-windows-x64.exe` | Portable, single file, nothing is installed. |
 | Linux x64 | `lostpart-linux-x64` | Static `x86_64-linux-musl` ELF. No Python and no libc dependency. |
 
 ```bash
@@ -45,6 +46,25 @@ chmod +x lostpart-linux-x64
 The Linux binary unpacks itself into `~/.cache/lostpart/<version>/` on the
 first run and reuses that copy afterwards.  Get them from the
 [releases page](https://github.com/AtamisFilho/testes/releases).
+
+## Getting started
+
+Started without a command the tool opens a menu, so a double click on the
+executable does something visible:
+
+```
+lostpart 0.2.0 - identify and recover lost disk partitions
+
+  1) List the disks and their partition tables
+  2) Scan a disk for lost partitions
+  3) Preview the contents of a partition
+  4) Back up the partition table of a disk
+  5) Show the command line options
+  0) Exit
+```
+
+The same operations are available from the command line, which is what the
+rest of this document describes.
 
 ## Why it is trustworthy
 
@@ -233,10 +253,13 @@ lostpart/
 ├── browse/            previewing a recovered partition
 │   └── lister.py      internal and native browsing
 ├── scripts/           build and release tooling
-│   ├── build.py         builds the Windows and Linux binaries
+│   ├── build.py         builds the Windows binary, the Linux ELF and the installer
 │   ├── launcher.c       the static ELF launcher for the Linux build
 │   ├── lostpart_main.py entry point of the packaged builds
+│   ├── make_icon.py     generates the application icon
 │   └── verify_release.py checks the produced artefacts
+├── installer/         the Inno Setup script of the Windows installer
+├── assets/            the application icon
 ├── tests/             the test suite
 ├── BUILDING.md        how to build the binaries
 └── CHANGELOG.md       what changed in each release

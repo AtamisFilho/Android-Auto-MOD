@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -101,15 +102,18 @@ def build_windows() -> Path:
         # the static analysis cannot see them.
         "--collect-submodules", "lostpart",
         "--hidden-import", "sqlite3",
-        str(ROOT / "scripts" / "lostpart_main.py"),
     ]
+    icon = ROOT / "assets" / "lostpart.ico"
+    if icon.is_file():
+        command += ["--icon", str(icon)]
+    else:
+        log("the icon is missing, run scripts/make_icon.py first")
     if sys.platform == "win32":
         version_file = BUILD / "version_info.txt"
         version_file.parent.mkdir(parents=True, exist_ok=True)
         version_file.write_text(_windows_version_info(version), encoding="utf-8")
-        command[command.index("--console") + 1:command.index("--console") + 1] = [
-            "--version-file", str(version_file)
-        ]
+        command += ["--version-file", str(version_file)]
+    command.append(str(ROOT / "scripts" / "lostpart_main.py"))
     run(command, cwd=ROOT)
 
     produced = DIST / ("lostpart.exe" if sys.platform == "win32" else "lostpart")
@@ -255,19 +259,73 @@ def build_linux() -> Path:
 
 
 # --------------------------------------------------------------------------
+# Windows installer
+# --------------------------------------------------------------------------
+
+
+def _iscc() -> str:
+    """Locate the Inno Setup compiler."""
+    candidates = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Inno Setup 6" / "ISCC.exe",
+        Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"),
+        Path(r"C:\Program Files\Inno Setup 6\ISCC.exe"),
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    found = shutil.which("ISCC")
+    if found:
+        return found
+    raise SystemExit(
+        "the Inno Setup compiler was not found.\n"
+        "Install it with:  winget install --id JRSoftware.InnoSetup -e\n"
+        "or download it from https://jrsoftware.org/isdl.php"
+    )
+
+
+def build_installer() -> Path:
+    """Compile the Windows installer with Inno Setup."""
+    template = ROOT / "installer" / "lostpart.iss"
+    if not template.is_file():
+        raise SystemExit(f"{template} does not exist")
+    DIST.mkdir(parents=True, exist_ok=True)
+
+    # The script is copied with the version of the package substituted, so
+    # the installer can never carry a stale version.
+    version = project_version()
+    generated = template.with_name("lostpart.generated.iss")
+    text = template.read_text(encoding="utf-8")
+    text = re.sub(r'#define AppVersion "[^"]*"', f'#define AppVersion "{version}"', text)
+    generated.write_text(text, encoding="utf-8")
+
+    log("compiling the installer")
+    run([_iscc(), str(generated)], cwd=generated.parent)
+    target = DIST / "lostpart-installer.exe"
+    log(f"built {target} ({target.stat().st_size} bytes)")
+    return target
+
+
+# --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build the lostpart binaries.")
-    parser.add_argument("target", choices=["windows", "linux", "all"])
+    parser.add_argument(
+        "target",
+        choices=["windows", "linux", "installer", "all"],
+        help="windows: the portable executable; linux: the static ELF; "
+             "installer: the Inno Setup installer; all: everything",
+    )
     args = parser.parse_args(argv)
 
     if args.target in ("windows", "all"):
         build_windows()
     if args.target in ("linux", "all"):
         build_linux()
+    if args.target in ("installer", "all"):
+        build_installer()
     return 0
 
 

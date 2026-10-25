@@ -117,9 +117,24 @@ def verify_linux() -> None:
                       "the bundled interpreter targets x86-64")
 
 
+def verify_installer() -> None:
+    print("Windows installer")
+    path = DIST / "lostpart-installer.exe"
+    if not check(path.is_file(), f"{path.name} exists"):
+        return
+    data = path.read_bytes()
+    check(data[:2] == b"MZ", "has a PE header")
+    # The Inno Setup bootstrapper carries these markers in its payload.
+    check(b"Inno Setup" in data[:200_000] or b"rDlPtS" in data,
+          "was produced by the Inno Setup compiler")
+    check(len(data) > 1_000_000, f"has a plausible size ({len(data)} bytes)")
+
+
 def main() -> int:
     print(f"verifying the release artefacts in {DIST}\n")
     verify_windows()
+    print()
+    verify_installer()
     print()
     verify_linux()
     print()
