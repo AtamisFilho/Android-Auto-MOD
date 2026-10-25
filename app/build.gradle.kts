@@ -37,7 +37,10 @@ android {
 
 dependencies {
     // Android Auto (Car App Library) — telas + Surface p/ vídeo
-    implementation("androidx.car.app:car-app:1.4.0")
+    implementation("androidx.car.app:app:1.4.0")
+    // Implementação "projected" (espelhada no carro via Android Auto) —
+    // necessária para CarHardwareManager/sensores funcionarem no modo Android Auto
+    implementation("androidx.car.app:app-projected:1.4.0")
 
     // Media3 / ExoPlayer — reprodução de áudio e vídeo
     implementation("androidx.media3:media3-exoplayer:1.4.1")

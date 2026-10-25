@@ -77,6 +77,9 @@ object MediaRegistry {
         if (!scanned) doScan(context)
     }
 
+    /** O scan inicial já terminou? (telas usam para decidir entre lista e "carregando") */
+    fun isScanned(): Boolean = scanned
+
     /** Reescaneia agora (botão "Escanear novamente"). */
     fun rescan(context: Context) {
         synchronized(this) { scanned = false }

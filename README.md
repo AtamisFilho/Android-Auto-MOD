@@ -80,7 +80,8 @@ Apps que não vêm da Play Store precisam do AA em modo desenvolvedor:
   **"Permitir vídeo sem sensor"** no app do celular (use com consciência).
 - **Áudio** (músicas/áudios WhatsApp) toca normalmente em movimento — igual Spotify.
 - **Retomar:** cada mídia volta de onde parou (posição salva por arquivo).
-- O vídeo usa a `SurfaceTemplate` do Car App Library **em tela cheia com recorte
+- O vídeo usa a **Surface em tela cheia** do Car App Library (categoria
+  NAVIGATION + `NavigationTemplate` + `AppManager.setSurfaceCallback`), **com recorte
   central** (`VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING`).
 
 ## 6 · YouTube no carro — Fermata Auto (sem root)
@@ -123,7 +124,7 @@ app/src/main/java/com/atamisfilho/aircrosscockpit/
 │   ├── CockpitSession.kt          sessão + sensor + ciclo de vida
 │   ├── HomeScreen.kt              grade de pastas
 │   ├── FolderScreen.kt            lista de arquivos da pasta
-│   ├── PlayerScreen.kt            player (SurfaceTemplate, tela cheia)
+│   ├── PlayerScreen.kt            player (NavigationTemplate + Surface em tela cheia)
 │   ├── MotionGate.kt              sensor de velocidade → trava de movimento
 │   ├── VideoPlayerController.kt   ExoPlayer global (fila, favoritos, retomada)
 │   └── CarIcons.kt                ícones
@@ -151,7 +152,7 @@ app/src/main/java/com/atamisfilho/aircrosscockpit/
 
 - **Uso pessoal:** apps com vídeo não são aceitos na **Play Store** (regras anti-distração
   da Google). Este projeto é para **instalação própria (sideload)**, o que é permitido.
-- O vídeo usa APIs **públicas** do Car App Library (`SurfaceTemplate`) de forma que a
+- O vídeo usa APIs **públicas** do Car App Library (Surface de navegação) de forma que a
   Google não endossa para vídeo; **atualizações do Android Auto podem exigir ajustes**
   no app (é o mesmo risco que o Fermata corre).
 - Vídeo em movimento é crime/violador de normas de trânsito e perigoso — por isso o

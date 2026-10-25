@@ -1,21 +1,30 @@
 package com.atamisfilho.aircrosscockpit.car
 
-import android.view.Surface
+import androidx.car.app.AppManager
 import androidx.car.app.CarContext
+import androidx.car.app.Screen
+import androidx.car.app.SurfaceCallback
+import androidx.car.app.SurfaceContainer
 import androidx.car.app.model.Action
 import androidx.car.app.model.ActionStrip
 import androidx.car.app.model.MessageTemplate
-import androidx.car.app.model.SurfaceCallback
-import androidx.car.app.model.SurfaceTemplate
 import androidx.car.app.model.Template
-import androidx.car.app.screen.Screen
+import androidx.car.app.navigation.model.MessageInfo
+import androidx.car.app.navigation.model.NavigationTemplate
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.atamisfilho.aircrosscockpit.media.MediaKind
 import com.atamisfilho.aircrosscockpit.util.Format
 
 /**
- * Tela do player: vídeo em TELA CHEIA na Surface do carro (com recorte)
- * + faixa de ações (anterior, play/pause, próximo, favorito) e título
- * com o progresso, atualizado a cada segundo.
+ * Tela do player: vídeo na Surface em TELA CHEIA do carro (NavigationTemplate)
+ * + faixa de ações (anterior, play/pause, próximo, favorito) e cartão de
+ * informações com o progresso, atualizado a cada segundo.
+ *
+ * Como obter a Surface: apps da categoria NAVIGATION recebem uma área de
+ * desenho em tela cheia; ela é entregue pelo host via
+ * AppManager.setSurfaceCallback(SurfaceCallback) — é o mesmo mecanismo usado
+ * pelos apps de vídeo do Android Auto (ex.: Fermata).
  *
  * Regras de segurança:
  *  - vídeo só com o carro PARADO (sensor de velocidade);
@@ -28,15 +37,53 @@ class PlayerScreen(
 
     private var registered = false
 
-    private val changeListener = {
+    private val changeListener: () -> Unit = {
         runCatching { invalidate() }
     }
 
-    override fun onGetTemplate(): Template {
+    /** Recebe a Surface em tela cheia do host do Android Auto. */
+    private val surfaceCallback = object : SurfaceCallback {
+        override fun onSurfaceAvailable(surfaceContainer: SurfaceContainer) {
+            VideoPlayerController.setSurface(surfaceContainer.surface)
+        }
+
+        override fun onSurfaceDestroyed(surfaceContainer: SurfaceContainer) {
+            VideoPlayerController.setSurface(null)
+        }
+    }
+
+    init {
+        // Limpa o callback da Surface ao sair da tela do player.
+        lifecycle.addObserver(LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_DESTROY) {
+                unregister()
+            }
+        })
+    }
+
+    private fun registerIfNeeded() {
         if (!registered) {
             VideoPlayerController.onChange = changeListener
+            carContext.getCarService(AppManager::class.java)
+                .setSurfaceCallback(surfaceCallback)
             registered = true
         }
+    }
+
+    private fun unregister() {
+        if (registered) {
+            VideoPlayerController.onChange = null
+            VideoPlayerController.setSurface(null)
+            runCatching {
+                carContext.getCarService(AppManager::class.java)
+                    .setSurfaceCallback(null)
+            }
+            registered = false
+        }
+    }
+
+    override fun onGetTemplate(): Template {
+        registerIfNeeded()
 
         val entry = VideoPlayerController.currentEntry()
 
@@ -84,25 +131,23 @@ class PlayerScreen(
                 .build()
         }
 
-        // Player normal com vídeo em tela cheia.
+        // Player normal: vídeo/áudio na Surface em tela cheia + informações.
         val pos = VideoPlayerController.positionMs()
         val dur = VideoPlayerController.durationMs()
         val playing = VideoPlayerController.isPlaying()
-        val title = "${if (playing) "▶" else "❚❚"} ${Format.duration(pos)} / ${Format.duration(dur)} · ${entry.title}"
+        val symbol = if (playing) "▶" else "❚❚"
+        val subtitle = buildString {
+            append("${symbol} ${Format.duration(pos)} / ${Format.duration(dur)}")
+            entry.artist?.let { append(" · $it") }
+        }
 
-        return SurfaceTemplate.Builder()
-            .setHeaderAction(Action.BACK)
-            .setTitle(title)
+        return NavigationTemplate.Builder()
+            .setNavigationInfo(
+                MessageInfo.Builder(entry.title)
+                    .setText(subtitle)
+                    .build()
+            )
             .setActionStrip(actionStrip())
-            .setSurfaceCallback(object : SurfaceCallback {
-                override fun onSurfaceAvailable(surface: Surface) {
-                    VideoPlayerController.setSurface(surface)
-                }
-
-                override fun onSurfaceDestroyed(surface: Surface) {
-                    VideoPlayerController.setSurface(null)
-                }
-            })
             .build()
     }
 
@@ -136,13 +181,5 @@ class PlayerScreen(
                     .build()
             )
         return builder.build()
-    }
-
-    override fun onDestroy() {
-        if (registered) {
-            VideoPlayerController.onChange = null
-            registered = false
-        }
-        super.onDestroy()
     }
 }

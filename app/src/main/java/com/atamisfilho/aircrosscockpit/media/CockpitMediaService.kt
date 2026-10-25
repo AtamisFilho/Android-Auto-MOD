@@ -7,11 +7,11 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.session.LibraryParams
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.atamisfilho.aircrosscockpit.phone.MainActivity
+import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 
@@ -139,12 +139,12 @@ class CockpitMediaService : MediaLibraryService() {
     // Callbacks da biblioteca (navegação feita pelo Android Auto)
     // ------------------------------------------------------------------
 
-    private inner class LibraryCallback : MediaLibrarySession.Callback() {
+    private inner class LibraryCallback : MediaLibrarySession.Callback {
 
         override fun onGetLibraryRoot(
             session: MediaLibrarySession,
             controller: MediaSession.ControllerInfo,
-            params: LibraryParams?,
+            params: MediaLibraryService.LibraryParams?,
         ): ListenableFuture<LibraryResult<MediaItem>> =
             Futures.immediateFuture(LibraryResult.ofItem(rootItem(), params))
 
@@ -154,8 +154,8 @@ class CockpitMediaService : MediaLibraryService() {
             parentId: String,
             page: Int,
             pageSize: Int,
-            params: LibraryParams?,
-        ): ListenableFuture<LibraryResult<MediaItem>> {
+            params: MediaLibraryService.LibraryParams?,
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
             if (parentId == ROOT_ID) {
                 // Pastas de áudio do app de mídia (vídeos ficam no app de tela do carro)
                 val audioFolders = MediaRegistry.FOLDERS.filter { it.kind == MediaKind.AUDIO }
