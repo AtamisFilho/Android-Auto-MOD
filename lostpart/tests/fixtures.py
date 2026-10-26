@@ -83,6 +83,7 @@ def make_gpt_disk(
     total_sectors: int = 2048,
     entries: list[tuple[str, int, int, str]] | None = None,
     entry_count: int = 128,
+    entry_size: int = 128,
 ) -> bytes:
     """Build a disk image with a valid GPT (primary and backup).
 
@@ -97,7 +98,6 @@ def make_gpt_disk(
     )
 
     sector_size = 512
-    entry_size = 128
     array_sectors = (entry_count * entry_size + sector_size - 1) // sector_size
     last_lba = total_sectors - 1
     first_usable = 2 + array_sectors
@@ -126,7 +126,7 @@ def make_gpt_disk(
         partition_entry_size=entry_size,
         partition_entry_array_crc32=array_crc,
     )
-    backup_entry_lba = last_lba - array_sectors + 1
+    backup_entry_lba = last_lba - array_sectors
     backup = build_gpt_header(
         current_lba=last_lba,
         backup_lba=1,

@@ -43,6 +43,19 @@ STATUS_RUNNING = "running"
 STATUS_DONE = "done"
 STATUS_CANCELLED = "cancelled"
 
+#: The columns a caller is allowed to write.  The names go into the SQL
+#: statement, so they cannot be taken from the caller.
+_UPDATABLE = frozenset({
+    "device_id",
+    "scan_start_timestamp",
+    "lost_partitions_json",
+    "status",
+    "backup_dbr_sectors_json",
+    "mode",
+    "last_sector",
+    "regions_json",
+})
+
 
 @dataclass
 class CheckpointStore:
@@ -58,6 +71,15 @@ class CheckpointStore:
     @property
     def finished(self) -> bool:
         return self.status in (STATUS_DONE, STATUS_CANCELLED)
+
+    @property
+    def resumable(self) -> bool:
+        """True when the scan can be continued.
+
+        A cancelled scan is over, but it is exactly the one that can be
+        picked up again, so it is resumable.
+        """
+        return self.status != STATUS_DONE
 
 
 class ScanCheckpoint:
@@ -102,6 +124,11 @@ class ScanCheckpoint:
         """Update arbitrary columns of a checkpoint."""
         if not fields:
             return
+        unknown = set(fields) - _UPDATABLE
+        if unknown:
+            raise ValueError(
+                f"these columns cannot be updated: {', '.join(sorted(unknown))}"
+            )
         columns = ", ".join(f"{name} = ?" for name in fields)
         self._conn.execute(
             f"UPDATE checkpoints SET {columns} WHERE id = ?",
@@ -176,4 +203,7 @@ def _candidate_from_dict(data: dict) -> LostPartitionCandidate:
         evidence=tuple(data.get("evidence", ())),
         details=dict(data.get("details", {})),
         volume_name=str(data.get("volume_name", "")),
+        # The sector size has to survive the round trip: without it the size
+        # of the partition would be computed with the wrong unit.
+        sector_size=int(data.get("sector_size", 512)),
     )

@@ -44,10 +44,22 @@ __all__ = [
     "guid_to_bytes",
     "bytes_to_guid",
     "GPT_HEADER_SIZE",
+    "MAX_PARTITION_ENTRIES",
+    "MAX_PARTITION_ENTRY_SIZE",
 ]
 
 GPT_HEADER_SIZE = 92
 GPT_HEADER_STRUCT = "<8sIIIIQQQQ16sQIII"
+
+#: Upper bound on the number of partition entries a GPT may declare.
+#: UEFI 2.10 does not fix a number, but the layout has to fit between the
+#: header and the first usable LBA, and every real implementation uses 128.
+#: The bound keeps a corrupt header from asking for an unbounded read.
+MAX_PARTITION_ENTRIES = 4096
+
+#: Upper bound on the size of one partition entry.  The entry itself is 128
+#: bytes; Linux also accepts 4 KiB and 16 KiB entries.
+MAX_PARTITION_ENTRY_SIZE = 4096
 
 
 def crc32(data: bytes) -> int:
@@ -85,7 +97,9 @@ class GptEntry:
     def sector_count(self) -> int:
         if self.is_empty:
             return 0
-        return self.last_lba - self.first_lba + 1
+        # A corrupt entry can declare a last LBA before its first one; the
+        # length must never be negative.
+        return max(0, self.last_lba - self.first_lba + 1)
 
     @property
     def end_lba(self) -> int:
@@ -141,8 +155,8 @@ class GptHeader:
     @property
     def is_valid(self) -> bool:
         return (
-            self.partition_entry_count > 0
-            and self.partition_entry_size >= GPT_ENTRY_SIZE
+            0 < self.partition_entry_count <= MAX_PARTITION_ENTRIES
+            and GPT_ENTRY_SIZE <= self.partition_entry_size <= MAX_PARTITION_ENTRY_SIZE
             and self.last_usable_lba >= self.first_usable_lba
         )
 

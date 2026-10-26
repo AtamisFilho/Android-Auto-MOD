@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..device import RawDevice
+from ..errors import RecoveryError
+from ..i18n import t
 from ..tables.table import TABLE_TYPE_GPT, PartitionTable
 
 __all__ = ["TableBackup", "create_backup", "restore_backup", "load_backup", "BACKUP_VERSION"]
@@ -85,7 +87,10 @@ def create_backup(
         entry_size = header.partition_entry_size
         array_sectors = (entry_count * entry_size + sector_size - 1) // sector_size
         chunks.append(_capture(device, header.partition_entry_lba, array_sectors))
-        backup_entry_lba = header.backup_lba - array_sectors + 1
+        # The backup array occupies the sectors right before the backup
+        # header.  One sector later and the last sector of the capture would
+        # be the header itself.
+        backup_entry_lba = header.backup_lba - array_sectors
         chunks.append(_capture(device, backup_entry_lba, array_sectors))
         chunks.append(_capture(device, header.backup_lba, 1))
     elif table.mbr is not None:
@@ -99,8 +104,12 @@ def create_backup(
 
             logical = parse_logical_partitions(read_sector, extended)
             for entry in logical:
-                # The EBR precedes the logical partition it describes.
-                chunks.append(_capture(device, max(0, entry.start_lba - 1), 1))
+                # The EBR precedes the logical partition it describes.  A
+                # logical partition at sector 0 would mean the chain is
+                # broken; capturing sector 0 would take the MBR itself.
+                if entry.start_lba <= 0:
+                    continue
+                chunks.append(_capture(device, entry.start_lba - 1, 1))
 
     backup = TableBackup(
         path=Path(path),
@@ -122,14 +131,35 @@ def load_backup(path: str | Path) -> TableBackup:
     return TableBackup.from_dict(data, path)
 
 
-def restore_backup(device: RawDevice, backup: TableBackup) -> int:
-    """Write a backup back to the disk.  Returns the number of bytes written."""
+def restore_backup(device: RawDevice, backup: TableBackup,
+                   force: bool = False) -> int:
+    """Write a backup back to the disk.  Returns the number of bytes written.
+
+    The backup is checked before anything is written: a backup made on a
+    disk with a different sector size belongs to another disk, and writing
+    it here would destroy the table of this one.
+    """
     sector_size = device.sector_size or 512
+    if not force and backup.sector_size != sector_size:
+        raise RecoveryError(
+            t("error.backup_sector_size",
+              saved=backup.sector_size, disk=sector_size)
+        )
+
     written = 0
     for chunk in backup.chunks:
         start_lba = int(chunk["start_lba"])
         count = int(chunk["count"])
+        if start_lba < 0 or count < 0:
+            raise RecoveryError(t("error.backup_chunk"))
         payload = base64.b64decode(str(chunk["data"]))
+        if len(payload) != count * sector_size:
+            # A short chunk would leave half a sector written and the other
+            # half untouched, which is worse than not restoring at all.
+            raise RecoveryError(
+                t("error.backup_chunk_size", expected=count * sector_size,
+                  found=len(payload))
+            )
         device.write_at(start_lba * sector_size, payload)
         written += len(payload)
     return written

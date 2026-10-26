@@ -27,10 +27,6 @@ class UnallocatedRegion:
         """First sector after the region."""
         return self.start_sector + self.sector_count
 
-    @property
-    def size_bytes(self) -> int:
-        return self.sector_count
-
     def contains(self, sector: int) -> bool:
         return self.start_sector <= sector < self.end_sector
 
@@ -69,6 +65,10 @@ def compute_unallocated_regions(
         start = max(entry.start_lba, area_start)
         end = min(entry.end_lba, area_end)
         if end <= area_start or start >= area_end:
+            continue
+        if end <= start:
+            # A broken entry that covers no sector at all.  It must not move
+            # the cursor backwards, or the free regions would overlap.
             continue
         if start > cursor:
             regions.append(UnallocatedRegion(cursor, start - cursor))

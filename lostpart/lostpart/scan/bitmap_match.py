@@ -177,11 +177,15 @@ def analyse_bitmap(
                 before_ok = nonzero == 0
             except Exception:  # pragma: no cover - defensive
                 before_ok = False
-        if before_ok:
-            evidence.append("the sectors preceding the candidate start are empty")
+            if before_ok:
+                evidence.append("the sectors preceding the candidate start are empty")
+            else:
+                evidence.append("the sectors preceding the candidate start contain data")
+                score *= 0.8
         else:
-            evidence.append("the sectors preceding the candidate start contain data")
-            score *= 0.8
+            # There is nothing before the candidate to look at, so the start
+            # boundary stays unproven -- it is not evidence for the volume.
+            evidence.append("there are no sectors before the candidate to check")
 
     # --- the volume must end where the bitmap stops ---------------------
     end_cluster = max_used + 1

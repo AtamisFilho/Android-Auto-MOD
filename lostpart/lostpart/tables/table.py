@@ -7,9 +7,13 @@ from dataclasses import dataclass, field
 
 from ..constants import GPT_ENTRY_SIZE, GPT_HEADER_LBA, GPT_TYPE_LABELS
 from ..device import RawDevice
+from ..errors import PartitionTableError
+from ..i18n import t
 from .gpt import (
     GptEntry,
     GptHeader,
+    MAX_PARTITION_ENTRIES,
+    MAX_PARTITION_ENTRY_SIZE,
     build_protective_mbr,
     bytes_to_guid,
     parse_gpt_entries,
@@ -57,12 +61,9 @@ class PartitionEntry:
         return self.start_lba + self.sector_count
 
     @property
-    def size_bytes(self) -> int:
-        return self.sector_count
-
-    @property
     def is_empty(self) -> bool:
-        return self.sector_count == 0
+        # A broken entry can carry a negative length; it describes nothing.
+        return self.sector_count <= 0
 
 
 @dataclass
@@ -193,6 +194,15 @@ def load_partition_table(device: RawDevice) -> PartitionTable | None:
         header = parse_gpt_header(header_bytes)
         if header is None:
             return None
+        # The entry count and the entry size come from the disk and cannot
+        # be trusted: a corrupt header would otherwise ask for an unbounded
+        # read before anything is validated.
+        if not (0 < header.partition_entry_count <= MAX_PARTITION_ENTRIES):
+            raise PartitionTableError(t("error.gpt_entry_count",
+                                         count=header.partition_entry_count))
+        if not (GPT_ENTRY_SIZE <= header.partition_entry_size <= MAX_PARTITION_ENTRY_SIZE):
+            raise PartitionTableError(t("error.gpt_entry_size",
+                                         size=header.partition_entry_size))
         array_bytes = device.read_at(
             header.partition_entry_lba * sector_size,
             header.partition_entry_count * header.partition_entry_size,
@@ -235,9 +245,18 @@ def read_gpt_backup(device: RawDevice, header: GptHeader) -> tuple[bytes, bytes]
     be read or does not carry the expected signature.
     """
     sector_size = device.sector_size or 512
+    if not (0 < header.partition_entry_count <= MAX_PARTITION_ENTRIES):
+        raise PartitionTableError(t("error.gpt_entry_count",
+                                     count=header.partition_entry_count))
+    if not (GPT_ENTRY_SIZE <= header.partition_entry_size <= MAX_PARTITION_ENTRY_SIZE):
+        raise PartitionTableError(t("error.gpt_entry_size",
+                                     size=header.partition_entry_size))
     array_bytes_len = header.partition_entry_count * header.partition_entry_size
     array_sectors = (array_bytes_len + sector_size - 1) // sector_size
-    backup_entry_lba = header.backup_lba - array_sectors + 1
+    # The backup array sits in the sectors immediately before the backup
+    # header, so it starts at ``backup_lba - array_sectors``.  Starting one
+    # sector later would put its last sector on top of the header.
+    backup_entry_lba = header.backup_lba - array_sectors
     try:
         header_bytes = device.read_at(header.backup_lba * sector_size, sector_size)
         if header_bytes[:8] != b"EFI PART":

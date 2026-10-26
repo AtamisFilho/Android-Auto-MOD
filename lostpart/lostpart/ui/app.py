@@ -32,7 +32,7 @@ from ..errors import LostPartError
 from ..i18n import format_size, sector_number, t
 from ..recover.backup import create_backup
 from ..recover.writer import recover_partition
-from ..scan.model import LostPartitionCandidate
+from ..scan.model import LostPartitionCandidate, RejectedCandidate
 from ..scan.scanner import scan_disk
 from ..tables.table import TABLE_TYPE_GPT, load_partition_table
 from .theme import COLORS, apply_theme
@@ -66,6 +66,7 @@ class LostPartApp:
         self.device_path: str = ""
         self.table = None
         self.candidates: list[LostPartitionCandidate] = []
+        self.rejected: list[RejectedCandidate] = []
         self.selected: LostPartitionCandidate | None = None
         self.messages: queue.Queue = queue.Queue()
         self._thread: threading.Thread | None = None
@@ -254,7 +255,7 @@ class LostPartApp:
     def _on_disk_selected(self, _event: object) -> None:
         selection = self.disk_list.curselection()
         if selection:
-            self.disk_index = tk.IntVar(value=selection[0])
+            self.disk_index.set(selection[0])
 
     def _on_scan_clicked(self) -> None:
         selection = self.disk_list.curselection()
@@ -345,6 +346,7 @@ class LostPartApp:
                     self._log(self._friendly_progress(message))
                 elif kind == "done":
                     self.candidates = payload.candidates
+                    self.rejected = payload.rejected
                     self.scan_status.configure(text=t("gui.scan.done"))
                     self.scan_bar["value"] = 100
                     self._fill_results()
@@ -405,6 +407,11 @@ class LostPartApp:
                                      bg=COLORS["surface"], fg=COLORS["text_muted"],
                                      wraplength=600, justify="center")
 
+        self.result_note = tk.Label(self.result_frame, text="",
+                                    font=(self.family, 9),
+                                    bg=COLORS["surface"], fg=COLORS["warning"],
+                                    wraplength=760, justify="left", anchor="w")
+
         self.preview_button = ttk.Button(self.result_actions,
                                           text=t("gui.results.preview"),
                                           style="Secondary.TButton",
@@ -417,6 +424,18 @@ class LostPartApp:
     def _fill_results(self) -> None:
         for item in self.result_tree.get_children():
             self.result_tree.delete(item)
+        if self.rejected:
+            details = "; ".join(
+                f"setor {item.candidate.start_sector} ({item.candidate.fs_type})"
+                for item in self.rejected
+            )
+            self.result_note.configure(
+                text=t("gui.results.rejected", count=len(self.rejected),
+                       details=details)
+            )
+            self.result_note.pack(fill="x", padx=14, pady=(0, 8))
+        else:
+            self.result_note.pack_forget()
         if not self.candidates:
             self.result_tree.pack_forget()
             if not self.result_empty.winfo_ismapped():
@@ -626,22 +645,32 @@ class LostPartApp:
         self.admin_bar.grid()
 
     def _elevate(self) -> None:
-        """Reabre o programa com privilégios de administrador."""
+        """Reabre o programa com privilégios de administrador.
+
+        ``ShellExecuteW`` is used with the *runas* verb instead of a shell
+        command: the paths and the arguments never reach a command
+        interpreter, so a path with a quote or a semicolon in it cannot
+        change the command that is run.
+        """
         try:
+            directory = None
             if getattr(sys, "frozen", False):
                 arguments = sys.argv[1:]
                 executable = sys.executable
             else:
+                # The package has to be importable from the elevated process.
+                directory = str(Path(__file__).resolve().parents[2])
                 arguments = ["-m", "lostpart.cli", "gui", *sys.argv[1:]]
                 executable = sys.executable
-            result = subprocess.run(
-                ["powershell", "-NoProfile", "-Command",
-                 "Start-Process", "-FilePath", f"'{executable}'",
-                 "-ArgumentList", "'" + "','".join(arguments) + "'",
-                 "-Verb", "RunAs"],
-                capture_output=True, text=True,
+
+            import ctypes
+
+            code = ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", executable,
+                subprocess.list2cmdline(arguments), directory, 1,
             )
-            if result.returncode == 0:
+            if code > 32:
+                # The elevated copy took over; this one can go.
                 self.root.destroy()
         except Exception as exc:  # pragma: no cover - depends on the OS
             self._show_error(str(exc))

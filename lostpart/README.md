@@ -185,7 +185,9 @@ lostpart escanear --device 0 --checkpoint scan.db
 A varredura olha **apenas o espaço livre** entre as partições conhecidas e
 acha candidatos procurando assinaturas de sistema de arquivos em blocos
 grandes, validando cada achado. Use `--checkpoint` para guardar um checkpoint
-em SQLite e retomar uma varredura interrompida.
+em SQLite e retomar uma varredura interrompida: o progresso é gravado durante
+a varredura, e a execução seguinte continua do ponto em que parou, sem ler de
+novo os setores já percorridos.
 
 Exemplo de saída:
 
@@ -242,7 +244,10 @@ lostpart restaurar --device 0 --backup mbr-backup.json
 ```
 
 O backup é JSON puro com os dados em base64, então pode ser inspecionado e
-restaurado com ferramentas comuns.
+restaurado com ferramentas comuns. Na hora de restaurar, o tamanho de setor do
+backup é comparado com o do disco: um backup tirado de outro disco é recusado
+(a não ser que você use `--force`), e uma diferença no número de setores é
+avisada.
 
 ### Menu interativo
 
@@ -281,6 +286,10 @@ não é uma partição. O lostpart não confia em assinaturas:
   volume.
 - **Todo veredito vem com as suas evidências.** Os motivos por trás de cada
   candidato são mostrados, para que você possa decidir se confia nele.
+- **Nada é descartado em silêncio.** Quando dois candidatos ocupam os mesmos
+  setores, só um pode ser usado — o outro é descartado, e o programa diz
+  qual foi descartado e por quê. "Não encontrei nada" e "encontrei e
+  descartei" são respostas diferentes, e você precisa saber qual recebeu.
 
 ---
 
@@ -435,6 +444,13 @@ com as duas cópias, e um volume NTFS completo com `$MFT` e `$Bitmap` de
 verdade — e exercita o scanner, o verificador de bitmap e os escritores
 contra elas. **Nenhum disco físico é tocado pelos testes.** Os testes da
 interface gráfica são pulados quando não há display disponível.
+
+Há também uma bateria de testes concentrada nos **caminhos que recusam
+alguma coisa** — sobreposição, partição sem tamanho, candidato fora do disco,
+tabela cheia, disco somente leitura, entrada corrompida, backup de outro
+disco, backup truncado, retomada de varredura. São os caminhos que um teste
+de caminho feliz nunca toca, e é neles que os defeitos mais graves estavam
+escondidos.
 
 Para gerar os binários avulsos, veja [BUILDING.md](BUILDING.md).
 O [changelog](CHANGELOG.md) lista o que mudou em cada versão.

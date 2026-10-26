@@ -26,6 +26,7 @@ __all__ = [
     "key_values",
     "progress",
     "progress_done",
+    "paint",
     "success",
     "warning",
     "error",
@@ -101,6 +102,14 @@ def _paint(text: str, code: str) -> str:
     if not enable_ansi():
         return text
     return f"{code}{text}\033[0m"
+
+
+def paint(text: str, code: str) -> str:
+    """Colour a piece of text, when the terminal supports it.
+
+    This is the public name; :func:`_paint` is kept as an alias.
+    """
+    return _paint(text, code)
 
 
 def _width(text: str) -> int:
@@ -180,14 +189,26 @@ def table(headers: tuple[str, ...], rows: list[list[str]],
         return
     if aligns is None:
         aligns = tuple("left" for _ in headers)
+    if len(aligns) < len(headers):
+        aligns = tuple(aligns) + ("left",) * (len(headers) - len(aligns))
+
+    # A row with a different number of cells than the header must not break
+    # the layout.  Extra cells get a column of their own instead of being
+    # dropped, and missing ones are left empty.
+    columns = max([len(headers)] + [len(row) for row in rows])
+    if len(aligns) < columns:
+        aligns = tuple(aligns) + ("left",) * (columns - len(aligns))
+    headers = list(headers) + [""] * (columns - len(headers))
+
     widths = [len(str(header)) for header in headers]
     for row in rows:
-        for index, cell in enumerate(row):
+        for index, cell in enumerate(row[:columns]):
             widths[index] = max(widths[index], _width(str(cell)))
 
     def render(cells: list[str], bold: bool = False) -> str:
         parts = []
-        for index, cell in enumerate(cells):
+        for index in range(columns):
+            cell = cells[index] if index < len(cells) else ""
             text = _pad(str(cell), widths[index], aligns[index])
             parts.append(_paint(text, "\033[1m") if bold else text)
         return indent + "  ".join(parts)

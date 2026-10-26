@@ -50,6 +50,9 @@ MESSAGES: dict[str, str] = {
         "Nenhuma partição perdida foi encontrada neste disco. "
         "Isso pode significar que tudo está em ordem."
     ),
+    "gui.results.rejected": (
+        "{count} candidato(s) foi(foram) descartado(s) por se sobrepor a outro: "
+        "{details}."),
     "gui.results.column": "Início",
     "gui.results.size": "Tamanho",
     "gui.results.filesystem": "Sistema de arquivos",
@@ -97,6 +100,7 @@ MESSAGES: dict[str, str] = {
     # -- linha de comando ------------------------------------------------
     "cli.description": "Encontre e recupere partições perdidas.",
     "cli.usage.tail": "Sem comando, o lostpart abre o menu interativo.",
+    "cli.bad_value": "Não foi possível continuar: {error}",
     "cli.command.list": "listar discos e tabelas de partições",
     "cli.command.scan": "procurar partições perdidas no espaço livre",
     "cli.command.recover": "recrever a entrada que falta na tabela",
@@ -120,6 +124,10 @@ MESSAGES: dict[str, str] = {
     "cli.help.mount": "montar a partição pelo sistema operacional",
     "cli.help.output": "arquivo de saída",
     "cli.help.backup": "arquivo de backup",
+    "cli.help.force": (
+        "restaura mesmo assim, mesmo que o backup venha de um disco com "
+        "outro tamanho de setor"
+    ),
 
     # -- listagem de discos ----------------------------------------------
     "list.title": "Discos",
@@ -148,7 +156,15 @@ MESSAGES: dict[str, str] = {
     "scan.found": "Partições encontradas",
     "scan.columns": ("Início", "Setores", "Tamanho", "Sistema de arquivos", "Confiança", "Como foi identificada"),
     "scan.evidence": "Por que encontramos esta partição",
+    "scan.rejected": (
+        "{count} candidato(s) foi(foram) descartado(s) por se sobrepor a outro."
+    ),
+    "scan.rejected_item": "setor {start} ({fs}): {reason}",
     "scan.progress": "Procurando no setor {sector}",
+    "scan.resume": (
+        "Retomando a varredura a partir do setor {sector} "
+        "({count} partição(ões) já encontrada(s))."
+    ),
     "scan.source_boot": "assinatura de boot",
     "scan.source_bitmap": "assinatura + bitmap de alocação",
 
@@ -184,6 +200,10 @@ MESSAGES: dict[str, str] = {
     # -- backup ------------------------------------------------------------
     "backup.done": "Backup salvo em {path} ({chunks} trecho(s), tabela {kind}).",
     "restore.done": "Restaurados {bytes} bytes de {source} para {target}.",
+    "restore.size_mismatch": (
+        "O backup veio de um disco de {saved} setores e este disco tem {disk}; "
+        "confira se é o disco certo antes de continuar."
+    ),
 
     # -- menu interativo ---------------------------------------------------
     "menu.title": "lostpart {version} - encontre e recupere partições perdidas",
@@ -226,6 +246,28 @@ MESSAGES: dict[str, str] = {
     "error.ebr_room": "Não há espaço livre dentro da partição estendida.",
     "error.ebr_fit": "A partição candidata não cabe dentro da partição estendida.",
     "error.gpt_header": "Não foi possível ler o cabeçalho da GPT.",
+    "error.gpt_entry_count": (
+        "A tabela GPT declara {count} entradas, o que é impossível; o cabeçalho "
+        "está corrompido."
+    ),
+    "error.gpt_entry_size": (
+        "A tabela GPT declara entradas de {size} bytes, o que é impossível; o "
+        "cabeçalho está corrompido."
+    ),
+    "error.unknown_fs": (
+        "Não se sabe escrever uma entrada para o sistema de arquivos {fs}; "
+        "a recuperação foi recusada."
+    ),
+    "error.backup_sector_size": (
+        "O backup foi tirado de um disco com setores de {saved} bytes e este "
+        "disco usa setores de {disk} bytes; restaurá-lo aqui destruiria a "
+        "tabela deste disco."
+    ),
+    "error.backup_chunk": "O arquivo de backup tem um trecho inválido.",
+    "error.backup_chunk_size": (
+        "Um trecho do backup tem {found} bytes em vez de {expected}; o "
+        "arquivo está incompleto ou foi alterado."
+    ),
     "error.open_device": "Não foi possível abrir o disco {path}: {error}",
     "error.access_denied": (
         "O acesso a {path} foi negado; execute o programa como administrador."

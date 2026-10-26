@@ -123,7 +123,7 @@ def run_interactive() -> int:
         ("0", t("menu.0")),
     ]
     for key, label in options:
-        print(f"   {console._paint(key, chr(27) + '[1;36m')}  {label}")
+        print(f"   {console.paint(key, chr(27) + '[1;36m')}  {label}")
     print()
 
     while True:

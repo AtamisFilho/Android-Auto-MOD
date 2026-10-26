@@ -41,6 +41,10 @@ from .scan.scanner import SCAN_MODE_FULL, SCAN_MODE_QUICK, scan_disk
 from .tables.table import TABLE_TYPE_GPT, load_partition_table
 from .ui import console
 
+#: How many sectors have to pass before the progress is written to the
+#: checkpoint file.  Writing it on every block would slow the scan down.
+CHECKPOINT_EVERY_SECTORS = 1 << 20
+
 __all__ = ["main", "build_parser"]
 
 logger = logging.getLogger("lostpart")
@@ -73,6 +77,10 @@ def list_devices_text(device_spec: str | None = None) -> str:
             except LostPartError as exc:
                 console.error(str(exc))
                 continue
+            finally:
+                # The device has to be closed on every path: a physical disk
+                # left open keeps the disk busy for the rest of the session.
+                device.close()
             console.info(str(getattr(device, "path", device)))
             if table is None:
                 console.bullet(t("list.no_table"))
@@ -102,7 +110,6 @@ def list_devices_text(device_spec: str | None = None) -> str:
             console.table(t("list.columns"), rows,
                           ("right", "right", "right", "right", "left", "center", "center"))
             console.divider()
-            device.close()
     return buffer.getvalue()
 
 
@@ -145,6 +152,17 @@ def format_scan_result(result, device_path: str) -> str:
             console.info(f"setor {candidate.start_sector}  ({candidate.fs_type})")
             for item in candidate.evidence:
                 console.bullet(item)
+
+        if getattr(result, "rejected", None):
+            console.divider()
+            console.warning(t("scan.rejected", count=len(result.rejected)))
+            for item in result.rejected:
+                console.bullet(
+                    t("scan.rejected_item",
+                      start=item.candidate.start_sector,
+                      fs=item.candidate.fs_type,
+                      reason=item.reason)
+                )
     return buffer.getvalue()
 
 
@@ -224,42 +242,65 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_scan(args: argparse.Namespace) -> int:
     device = open_device(args.device, read_only=True)
+    checkpoint = None
     try:
         table = load_partition_table(device)
         if table is None:
             console.error(t("error.no_table"))
             return 1
 
-        checkpoint = ScanCheckpoint(args.checkpoint) if args.checkpoint else None
-        checkpoint_id = None
-        if checkpoint is not None:
-            checkpoint_id = checkpoint.start(
-                device_id=str(getattr(device, "path", args.device)), mode=args.mode)
+        device_path = str(getattr(device, "path", args.device))
+        resume_from = 0
+        known: list[LostPartitionCandidate] = []
+
+        if args.checkpoint:
+            checkpoint = ScanCheckpoint(args.checkpoint)
+            previous = checkpoint.latest(device_path)
+            if previous is not None and previous.resumable and previous.mode == args.mode:
+                # Continue where the interrupted scan stopped.
+                resume_from = previous.last_sector
+                known = list(previous.candidates)
+                if not args.quiet:
+                    console.info(t("scan.resume", sector=resume_from,
+                                   count=len(known)))
+            checkpoint_id = checkpoint.start(device_id=device_path, mode=args.mode)
+        else:
+            checkpoint_id = None
+
+        last_recorded = resume_from
 
         def progress(fraction: float, message: str) -> None:
+            nonlocal last_recorded
             if not args.quiet:
                 console.progress(fraction,
                                  t("scan.progress", sector=sector_number(message)))
+            # The progress is written to the checkpoint from time to time, so
+            # an interrupted scan can pick up where it stopped.
+            sector = int(sector_number(message))
+            if (checkpoint is not None and checkpoint_id is not None
+                    and sector - last_recorded >= CHECKPOINT_EVERY_SECTORS):
+                last_recorded = sector
+                checkpoint.set_progress(checkpoint_id, sector)
 
-        result = scan_disk(device, table, mode=args.mode, progress=progress)
+        result = scan_disk(device, table, mode=args.mode, progress=progress,
+                           resume_from=resume_from, known=known)
         if not args.quiet:
             console.progress_done()
 
-        for candidate in result.candidates:
-            if checkpoint is not None and checkpoint_id is not None:
-                checkpoint.add_candidate(checkpoint_id, candidate)
         if checkpoint is not None and checkpoint_id is not None:
+            for candidate in result.candidates:
+                checkpoint.add_candidate(checkpoint_id, candidate)
             checkpoint.set_status(checkpoint_id,
                                   STATUS_CANCELLED if result.cancelled else STATUS_DONE)
-        if checkpoint is not None:
-            checkpoint.close()
 
         if args.json:
             print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
         else:
-            print(format_scan_result(result, str(getattr(device, "path", args.device))))
+            print(format_scan_result(result, device_path))
         return 0
     finally:
+        if checkpoint is not None:
+            checkpoint.close()
         device.close()
 
 
@@ -366,7 +407,12 @@ def cmd_restore(args: argparse.Namespace) -> int:
     backup = load_backup(args.backup)
     device = open_device(args.device, read_only=False)
     try:
-        written = restore_backup(device, backup)
+        if (backup.total_sectors and device.total_sectors
+                and backup.total_sectors != device.total_sectors):
+            console.warning(t("restore.size_mismatch",
+                              saved=backup.total_sectors,
+                              disk=device.total_sectors))
+        written = restore_backup(device, backup, force=args.force)
         console.success(t("restore.done", bytes=written, source=backup.path,
                           target=device.path))
         return 0
@@ -464,6 +510,8 @@ def build_parser() -> argparse.ArgumentParser:
                                 help=t("cli.command.restore"))
     p_restore.add_argument("--device", required=True, help=t("cli.help.device"))
     p_restore.add_argument("--backup", required=True, help=t("cli.help.backup"))
+    p_restore.add_argument("--force", action="store_true",
+                           help=t("cli.help.force"))
     p_restore.set_defaults(func=cmd_restore)
 
     p_gui = sub.add_parser("grafica", aliases=["gui"], help=t("cli.command.gui"))
@@ -493,6 +541,11 @@ def main(argv: list[str] | None = None) -> int:
             code = int(args.func(args))
     except LostPartError as exc:
         console.error(str(exc))
+        code = 2
+    except (ValueError, OSError) as exc:
+        # A value the user typed could not be used.  A traceback would only
+        # frighten them; the message says what went wrong.
+        console.error(t("cli.bad_value", error=exc))
         code = 2
     except KeyboardInterrupt:
         print("interrompido", file=sys.stderr)

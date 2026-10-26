@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from .unallocated import UnallocatedRegion
 
-__all__ = ["LostPartitionCandidate", "ScanResult", "RecoveryOutcome"]
+__all__ = ["LostPartitionCandidate", "RejectedCandidate", "ScanResult", "RecoveryOutcome"]
 
 
 @dataclass
@@ -52,6 +52,25 @@ class LostPartitionCandidate:
         }
 
 
+@dataclass(frozen=True)
+class RejectedCandidate:
+    """A candidate that was found but must not be used.
+
+    The scanner throws candidates away when two of them describe the same
+    sectors.  Silently dropping one of them would make a real finding
+    disappear, so the rejection is recorded and reported.
+    """
+
+    candidate: LostPartitionCandidate
+    reason: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "candidate": self.candidate.to_dict(),
+            "reason": self.reason,
+        }
+
+
 @dataclass
 class ScanResult:
     """The outcome of a scan over a disk."""
@@ -64,6 +83,8 @@ class ScanResult:
     elapsed_seconds: float = 0.0
     bytes_scanned: int = 0
     cancelled: bool = False
+    #: Candidates that were found and then discarded, with the reason.
+    rejected: list[RejectedCandidate] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -81,6 +102,7 @@ class ScanResult:
                 for r in self.regions
             ],
             "candidates": [c.to_dict() for c in self.candidates],
+            "rejected": [r.to_dict() for r in self.rejected],
         }
 
 

@@ -107,8 +107,6 @@ def _mount_linux(
     import os
     import subprocess
 
-    if not isinstance(device, type(None)):  # pragma: no cover - placeholder
-        pass
     device_path = getattr(device, "path", "")
     if not device_path:
         raise MountError(t("error.mount_no_path"))

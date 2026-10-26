@@ -19,6 +19,7 @@ import uuid
 from dataclasses import dataclass
 
 from ..constants import (
+    GPT_ENTRY_SIZE,
     GPT_TYPE_LINUX_BY_FS,
     MBR_TYPE_EMPTY,
     MBR_TYPE_EXTENDED_WIN,
@@ -29,6 +30,8 @@ from ..errors import RecoveryError, ValidationError
 from ..i18n import t
 from ..scan.model import LostPartitionCandidate, RecoveryOutcome
 from ..tables.gpt import (
+    MAX_PARTITION_ENTRIES,
+    MAX_PARTITION_ENTRY_SIZE,
     GptEntry,
     build_gpt_header,
     build_protective_mbr,
@@ -74,13 +77,28 @@ _MBR_TYPES: dict[str, int] = {
 
 
 def mbr_type_for_fs(fs_type: str) -> int:
-    """The MBR type byte to use for a filesystem."""
-    return _MBR_TYPES.get(fs_type.lower(), 0x07)
+    """The MBR type byte to use for a filesystem.
+
+    An unknown filesystem is refused instead of being written as NTFS: a
+    partition that claims the wrong type is mounted wrongly, or not at all,
+    and the user has no way to tell that from a failed recovery.
+    """
+    try:
+        return _MBR_TYPES[fs_type.lower()]
+    except KeyError:
+        raise ValueError(
+            f"no MBR type byte is known for the filesystem {fs_type!r}"
+        ) from None
 
 
 def gpt_type_for_fs(fs_type: str) -> str:
     """The GPT partition type GUID to use for a filesystem."""
-    return GPT_TYPE_LINUX_BY_FS.get(fs_type.lower(), GPT_TYPE_LINUX_BY_FS["ntfs"])
+    try:
+        return GPT_TYPE_LINUX_BY_FS[fs_type.lower()]
+    except KeyError:
+        raise ValueError(
+            f"no GPT type GUID is known for the filesystem {fs_type!r}"
+        ) from None
 
 
 def _align_up(value: int, alignment: int) -> int:
@@ -108,6 +126,13 @@ def validate_candidate(
         raise ValidationError(t("error.no_size"))
     if candidate.start_sector <= 0:
         raise ValidationError(t("error.start_zero"))
+    try:
+        mbr_type_for_fs(candidate.fs_type)
+        gpt_type_for_fs(candidate.fs_type)
+    except ValueError:
+        raise ValidationError(
+            t("error.unknown_fs", fs=candidate.fs_type)
+        ) from None
     if candidate.end_sector > device.total_sectors:
         raise ValidationError(
             t("error.out_of_range", end=candidate.end_sector,
@@ -138,7 +163,6 @@ def _write_mbr_entry(
     mbr = table.mbr or parse_mbr(device.read_at(0, sector_size))
     entries = list(mbr.entries)
     type_byte = mbr_type_for_fs(candidate.fs_type)
-
     free_slot = next((e.index for e in entries[:4] if e.is_empty), None)
     if free_slot is not None:
         head, sector, cylinder = lba_to_chs(candidate.start_sector)
@@ -248,6 +272,12 @@ def _write_gpt_entry(
     header = table.gpt_header
     if header is None:
         raise RecoveryError(t("error.gpt_header"))
+    if not (0 < header.partition_entry_count <= MAX_PARTITION_ENTRIES):
+        raise ValidationError(t("error.gpt_entry_count",
+                                 count=header.partition_entry_count))
+    if not (GPT_ENTRY_SIZE <= header.partition_entry_size <= MAX_PARTITION_ENTRY_SIZE):
+        raise ValidationError(t("error.gpt_entry_size",
+                                 size=header.partition_entry_size))
 
     array_bytes = device.read_at(
         header.partition_entry_lba * sector_size,
@@ -272,16 +302,21 @@ def _write_gpt_entry(
         name=candidate.volume_name or candidate.label,
     )
 
+    # The entry is 128 bytes, but the slot in the array can be wider.  It has
+    # to be padded, otherwise the array would shrink by the difference and
+    # every entry after it would move, taking the CRC with it.
+    entry_bytes = entry.to_bytes().ljust(header.partition_entry_size, b"\x00")
+
     # Write the single entry into the primary array.
     entry_offset = free_index * header.partition_entry_size
     device.write_at(
         header.partition_entry_lba * sector_size + entry_offset,
-        entry.to_bytes(),
+        entry_bytes,
     )
 
     # Recompute the entry array CRC and rewrite the primary header.
     new_array = bytearray(array_bytes)
-    new_array[entry_offset:entry_offset + header.partition_entry_size] = entry.to_bytes()
+    new_array[entry_offset:entry_offset + header.partition_entry_size] = entry_bytes
     array_crc = crc32(bytes(new_array))
     primary_header = build_gpt_header(
         current_lba=header.current_lba,
@@ -300,7 +335,9 @@ def _write_gpt_entry(
     array_sectors = (
         header.partition_entry_count * header.partition_entry_size + sector_size - 1
     ) // sector_size
-    backup_entry_lba = header.backup_lba - array_sectors + 1
+    # The backup array occupies the sectors right before the backup header.
+    # One sector later and its last sector would land on the header.
+    backup_entry_lba = header.backup_lba - array_sectors
     device.write_at(backup_entry_lba * sector_size, bytes(new_array))
     backup_header = build_gpt_header(
         current_lba=header.backup_lba,

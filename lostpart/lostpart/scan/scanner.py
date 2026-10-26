@@ -41,7 +41,7 @@ from ..fs.base import ProbeContext
 from ..fs import registry
 from ..fs.ntfs import parse_boot_sector
 from .bitmap_match import analyse_bitmap
-from .model import LostPartitionCandidate, ScanResult
+from .model import LostPartitionCandidate, RejectedCandidate, ScanResult
 from .unallocated import UnallocatedRegion, compute_unallocated_regions
 
 logger = logging.getLogger(__name__)
@@ -131,22 +131,45 @@ class Scanner:
         regions: Iterable[UnallocatedRegion],
         progress: Callable[[float, str], None] | None = None,
         should_cancel: Callable[[], bool] | None = None,
-    ) -> list[LostPartitionCandidate]:
-        """Scan the given free regions and return the candidates found."""
-        found: dict[int, LostPartitionCandidate] = {}
+        resume_from: int = 0,
+        known: Iterable[LostPartitionCandidate] = (),
+    ) -> tuple[list[LostPartitionCandidate], list[RejectedCandidate]]:
+        """Scan the given free regions.
+
+        ``resume_from`` is the first sector that still has to be read: the
+        sectors before it are considered already scanned.  ``known`` carries
+        the candidates found by the previous run, so a resumed scan returns
+        the same result as an uninterrupted one.
+
+        Returns the candidates that may be used and the ones that were
+        discarded, with the reason for each discard.
+        """
+        found: dict[int, LostPartitionCandidate] = {
+            candidate.start_sector: candidate for candidate in known
+        }
         regions = list(regions)
-        total_bytes = sum(r.sector_count for r in regions) * (self.device.sector_size or 512)
+        sector_size = self.device.sector_size or 512
+        total_bytes = sum(r.sector_count for r in regions) * sector_size
         scanned = 0
 
         for region in regions:
             if should_cancel and should_cancel():
                 break
-            region_bytes = region.sector_count * (self.device.sector_size or 512)
+            region_bytes = region.sector_count * sector_size
             block_size = self.chunk_bytes
             if self.mode == SCAN_MODE_QUICK:
                 block_size = 1024 * 1024
-            offset = region.start_sector * (self.device.sector_size or 512)
+            offset = region.start_sector * sector_size
             end = offset + region_bytes
+
+            # A resumed scan starts where the previous one stopped.  The
+            # bytes before that point still count as scanned, so the
+            # progress bar does not jump back to zero.
+            if resume_from > region.start_sector:
+                skipped = min(resume_from, region.end_sector) - region.start_sector
+                if skipped > 0:
+                    scanned += skipped * sector_size
+                    offset += skipped * sector_size
 
             while offset < end:
                 if should_cancel and should_cancel():
@@ -158,7 +181,7 @@ class Scanner:
                     logger.debug("read failed at offset %d: %s", offset, exc)
                     offset += read_size
                     continue
-                block_start_sector = offset // (self.device.sector_size or 512)
+                block_start_sector = offset // sector_size
                 for sector in sorted(self._hits_in_block(block, block_start_sector)):
                     if sector in found:
                         continue
@@ -170,10 +193,9 @@ class Scanner:
                 scanned += len(block)
                 offset += read_size
                 if progress and total_bytes:
-                    progress(min(1.0, scanned / total_bytes), f"scanning sector {offset // (self.device.sector_size or 512)}")
+                    progress(min(1.0, scanned / total_bytes), f"scanning sector {offset // sector_size}")
 
         return self._resolve_overlaps(sorted(found.values(), key=lambda c: c.start_sector))
-
     # -- candidate evaluation -------------------------------------------
     def _evaluate(self, sector: int) -> LostPartitionCandidate | None:
         """Validate a candidate start sector and build a candidate record."""
@@ -233,26 +255,42 @@ class Scanner:
     # -- post processing --------------------------------------------------
     def _resolve_overlaps(
         self, candidates: list[LostPartitionCandidate]
-    ) -> list[LostPartitionCandidate]:
+    ) -> tuple[list[LostPartitionCandidate], list[RejectedCandidate]]:
         """Drop candidates that overlap a more confident one.
 
         Two filesystems cannot occupy the same sectors.  When two candidates
         overlap, the one with the higher confidence wins; on a tie the one
         with more sectors wins.
+
+        The loser is not thrown away silently: it is returned in the second
+        list together with the reason, so the caller can tell the user that
+        something was found and why it was not used.
         """
         resolved: list[LostPartitionCandidate] = []
+        rejected: list[RejectedCandidate] = []
         for candidate in sorted(
             candidates, key=lambda c: (-c.confidence, -c.sector_count, c.start_sector)
         ):
-            clash = False
+            clash = None
             for kept in resolved:
                 if candidate.start_sector < kept.end_sector and kept.start_sector < candidate.end_sector:
-                    clash = True
+                    clash = kept
                     break
-            if not clash:
+            if clash is None:
                 resolved.append(candidate)
+            else:
+                rejected.append(
+                    RejectedCandidate(
+                        candidate=candidate,
+                        reason=(
+                            f"overlaps the candidate at sector {clash.start_sector} "
+                            f"({clash.fs_type}, confidence {clash.confidence:.0%})"
+                        ),
+                    )
+                )
         resolved.sort(key=lambda c: c.start_sector)
-        return resolved
+        rejected.sort(key=lambda r: r.candidate.start_sector)
+        return resolved, rejected
 
 
 def scan_disk(
@@ -261,6 +299,8 @@ def scan_disk(
     mode: str = SCAN_MODE_FULL,
     progress: Callable[[float, str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    resume_from: int = 0,
+    known: Iterable[LostPartitionCandidate] = (),
 ) -> ScanResult:
     """Convenience wrapper: compute the free regions of a disk and scan them."""
     from ..tables.table import TABLE_TYPE_GPT, PartitionTable
@@ -277,7 +317,10 @@ def scan_disk(
     regions = compute_unallocated_regions(table.entries, area_start, area_end)
     scanner = Scanner(device, mode=mode)
     started = time.monotonic()
-    candidates = scanner.scan(regions, progress=progress, should_cancel=should_cancel)
+    candidates, rejected = scanner.scan(
+        regions, progress=progress, should_cancel=should_cancel,
+        resume_from=resume_from, known=known,
+    )
     elapsed = time.monotonic() - started
     return ScanResult(
         device="",
@@ -288,4 +331,5 @@ def scan_disk(
         elapsed_seconds=elapsed,
         bytes_scanned=sum(r.sector_count for r in regions) * sector_size,
         cancelled=bool(should_cancel and should_cancel()),
+        rejected=rejected,
     )

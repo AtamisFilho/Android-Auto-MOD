@@ -214,9 +214,15 @@ class WindowsPhysicalDrive(RawDevice):  # pragma: no cover - platform specific
                   error=f"erro do Windows {err}")
             )
         self._handle = handle
-        self.sector_size = self._query_sector_size()
-        self.size = self._query_size()
-        self._readonly = read_only or not self._query_writable()
+        try:
+            self.sector_size = self._query_sector_size()
+            self.size = self._query_size()
+            self._readonly = read_only or not self._query_writable()
+        except Exception:
+            # A handle left open keeps the physical disk busy for the rest of
+            # the session, so it is closed before the error is propagated.
+            self.close()
+            raise
 
     # -- helpers ---------------------------------------------------------
     def _ioctl(self, code: int, in_buf: int = 0, in_size: int = 0,
