@@ -14,7 +14,7 @@ def _answers(*values: str):
     queue = list(values)
 
     def _input(prompt: str = "") -> str:
-        if "Press Enter to return" in prompt:
+        if "voltar ao menu" in prompt:
             return ""
         if not queue:
             return "0"
@@ -36,9 +36,10 @@ def test_the_menu_lists_the_operations(capsys, monkeypatch):
     assert run_interactive() == 0
     out = capsys.readouterr().out
     assert "lostpart" in out
-    assert "List the disks" in out
-    assert "Scan a disk for lost partitions" in out
-    assert "Bye." in out
+    assert "Listar os discos" in out
+    assert "Procurar partições perdidas" in out
+    assert "Abrir a interface gráfica" in out
+    assert "Até logo" in out
 
 
 def test_the_menu_runs_the_listing(capsys, monkeypatch, tmp_path):
@@ -58,14 +59,14 @@ def test_the_menu_survives_a_failing_action(capsys, monkeypatch):
     monkeypatch.setattr("builtins.input", _answers("2", "/definitely/not/a/device", "0"))
     assert run_interactive() == 0
     out = capsys.readouterr().out
-    assert "error:" in out
+    assert "Não foi possível concluir" in out
 
 
 def test_an_unknown_option_is_reported(capsys, monkeypatch):
     monkeypatch.setattr("builtins.input", _answers("x", "0"))
     assert run_interactive() == 0
     out = capsys.readouterr().out
-    assert "Unknown option" in out
+    assert "Opção desconhecida" in out
 
 
 def test_the_console_orphan_check_never_raises():
@@ -78,5 +79,5 @@ def test_the_cli_without_a_command_opens_the_menu(capsys, monkeypatch):
     monkeypatch.setattr("builtins.input", _answers("0"))
     assert main([]) == 0
     out = capsys.readouterr().out
-    assert "1) List the disks" in out
-    assert "Bye." in out
+    assert "Listar os discos" in out
+    assert "Até logo" in out

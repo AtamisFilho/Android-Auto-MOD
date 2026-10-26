@@ -41,6 +41,10 @@ The filesystem modules are loaded with `importlib` at run time, so the build
 passes `--collect-submodules lostpart`; without it the packaged binary would
 come up with only the NTFS probe available.
 
+The graphical interface is built on Tkinter, which ships with CPython, so
+PyInstaller bundles the Tcl/Tk runtime on its own.  That is why the Windows
+executable grew from 9.3 MiB to 12.3 MiB in 0.3.0.
+
 ### Windows installer
 
 The installer is built with [Inno Setup](https://jrsoftware.org).  The script
@@ -108,7 +112,9 @@ python scripts/verify_release.py
 The script checks the PE header of the Windows executable, the Inno Setup
 bootstrapper, and -- for the Linux binary -- the ELF header, the absence of a
 dynamic loader, the payload trailer, the contents of the payload and the
-permissions of the bundled interpreter.
+permissions of the bundled interpreter.  Since 0.3.0 it also checks that the
+graphical interface, the pt-BR catalogue and the Tkinter runtime are inside
+the Linux payload.
 
 A quick manual check:
 
@@ -127,6 +133,30 @@ file dist/lostpart-linux-x64
 `file` should report an `ELF 64-bit LSB executable, x86-64` — the payload is
 appended after the ELF image and does not change that.
 
+### Checking the graphical interface
+
+```bash
+# captures every screen of the assistant into build/screenshots
+python scripts/screenshot_gui.py
+
+# captures the window of the packaged executable
+python scripts/capture_exe.py dist/lostpart-windows-x64.exe build/packaged-gui.png
+```
+
+The second one is the important one: it proves that Tkinter really is inside
+the published binary and not only present in the checkout.  It renders the
+window with `PrintWindow`, so it works in a session without an interactive
+desktop.
+
+## Development helpers
+
+```bash
+python scripts/make_test_image.py build/test-disk.img   # a disk image to play with
+python scripts/screenshot_gui.py                        # the screens of the assistant
+python scripts/capture_exe.py <exe> <out.png>           # the window of a packaged build
+python scripts/inspect_payload.py <linux-binary>        # what is inside the payload
+```
+
 ## Release checklist
 
 1. Bump `__version__` in `lostpart/__init__.py` and add an entry to
@@ -138,14 +168,16 @@ appended after the ELF image and does not change that.
 6. Tag and publish:
 
    ```bash
-   git tag -a v0.2.0 -m "lostpart 0.2.0"
+   git tag -a v0.3.0 -m "lostpart 0.3.0"
    git push origin main --tags
-   gh release create v0.2.0 \
+   gh release create v0.3.0 \
        dist/lostpart-installer.exe \
        dist/lostpart-windows-x64.exe \
        dist/lostpart-linux-x64 \
-       --title "lostpart 0.2.0" \
-       --notes-file docs/releases/v0.2.0.md
+       dist/SHA256SUMS.txt \
+       --title "lostpart 0.3.0" \
+       --notes-file docs/releases/v0.3.0.md \
+       --target main
    ```
 
 ## Layout of the build directory

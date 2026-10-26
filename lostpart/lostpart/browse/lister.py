@@ -22,6 +22,7 @@ from ..device import RawDevice
 from ..errors import MountError
 from ..fs.base import DirEntry, ProbeContext
 from ..fs import registry
+from ..i18n import t
 from ..scan.model import LostPartitionCandidate
 
 logger = logging.getLogger(__name__)
@@ -59,16 +60,18 @@ def list_partition(
     probe = registry.detect_best(ctx)
     if probe is None:
         raise MountError(
-            f"no supported filesystem was recognised at sector {candidate.start_sector}"
+            t("browse.no_fs", sector=candidate.start_sector)
         )
     entries = registry.read_directory(ctx, path)
     return BrowseResult(
         entries=entries,
         fs_type=probe.fs_type,
         method="internal",
-        message=(
-            f"{len(entries)} entries in "
-            f"{'/'.join(path) if path else '/'} ({probe.label})"
+        message=t(
+            "browse.entries",
+            count=len(entries),
+            path="/".join(path) if path else "/",
+            label=probe.label,
         ),
     )
 
@@ -92,7 +95,7 @@ def mount_partition(
         return _mount_linux(device, candidate, mount_point, read_only)
     if os.name == "nt":
         return _mount_windows(device, candidate)
-    raise MountError("native mounting is not supported on this platform")
+    raise MountError(t("error.mount_unsupported"))
 
 
 def _mount_linux(
@@ -108,13 +111,13 @@ def _mount_linux(
         pass
     device_path = getattr(device, "path", "")
     if not device_path:
-        raise MountError("the device does not expose a path that can be mounted")
+        raise MountError(t("error.mount_no_path"))
 
     target = Path(mount_point) if mount_point else Path("/mnt/lostpart")
     try:
         target.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise MountError(f"cannot create the mount point {target}: {exc}") from exc
+        raise MountError(t("error.mount_point", target=target, error=exc)) from exc
 
     options = "ro" if read_only else "rw"
     offset = candidate.start_sector * device.sector_size
@@ -122,11 +125,12 @@ def _mount_linux(
         "mount", "-o", f"{options},loop,offset={offset}", device_path, str(target),
     ]
     if shutil.which("mount") is None:
-        raise MountError("the 'mount' command is not available")
+        raise MountError(t("error.mount_missing", command="mount"))
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode != 0:
         raise MountError(
-            f"mounting failed: {result.stderr.strip() or result.stdout.strip()}"
+            t("error.mount_failed",
+              error=result.stderr.strip() or result.stdout.strip())
         )
     entries = _list_os_directory(target)
     return BrowseResult(
@@ -134,7 +138,7 @@ def _mount_linux(
         fs_type=candidate.fs_type,
         method="native",
         mount_point=str(target),
-        message=f"mounted at {target} ({len(entries)} entries)",
+        message=t("browse.mounted", target=target, count=len(entries)),
     )
 
 
@@ -146,7 +150,7 @@ def _mount_windows(device: RawDevice, candidate: LostPartitionCandidate) -> Brow
     import subprocess
 
     if shutil.which("mountvol") is None:
-        raise MountError("the 'mountvol' command is not available")
+        raise MountError(t("error.mount_missing", command="mountvol"))
 
     # Ask Windows to pick up the new partition layout.
     try:
@@ -156,23 +160,20 @@ def _mount_windows(device: RawDevice, candidate: LostPartitionCandidate) -> Brow
 
     target = _find_volume_for_partition(device, candidate)
     if target is None:
-        raise MountError(
-            "Windows did not expose a volume for this partition; "
-            "the partition entry may need to be written and the disk re-scanned"
-        )
+        raise MountError(t("error.no_volume"))
     guid, letter = target
     result = subprocess.run(
         ["mountvol", f"{letter}:", guid], capture_output=True, text=True
     )
     if result.returncode != 0:
-        raise MountError(f"mountvol failed: {result.stderr.strip()}")
+        raise MountError(t("error.mount_failed", error=result.stderr.strip()))
     entries = _list_os_directory(f"{letter}:\\")
     return BrowseResult(
         entries=entries,
         fs_type=candidate.fs_type,
         method="native",
         mount_point=f"{letter}:\\",
-        message=f"mounted at {letter}:\\ ({len(entries)} entries)",
+        message=t("browse.mounted", target=f"{letter}:\\", count=len(entries)),
     )
 
 
@@ -234,5 +235,5 @@ def _list_os_directory(path: str | Path) -> list[DirEntry]:
                     )
                 )
     except OSError as exc:
-        raise MountError(f"cannot list {path}: {exc}") from exc
+        raise MountError(t("error.browse_failed", path=path, error=exc)) from exc
     return sorted(entries, key=lambda e: (not e.is_dir, e.name.lower()))

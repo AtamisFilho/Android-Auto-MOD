@@ -95,6 +95,15 @@ def verify_linux() -> None:
                   "the payload carries the HFS+ probe")
             check("app/lostpart/scan/bitmap_match.py" in names,
                   "the payload carries the bitmap matcher")
+            check("app/lostpart/ui/app.py" in names,
+                  "the payload carries the graphical interface")
+            check("app/lostpart/ui/console.py" in names,
+                  "the payload carries the console renderer")
+            check("app/lostpart/i18n.py" in names,
+                  "the payload carries the pt-BR catalogue")
+            check(any(name.startswith("python/lib/python3")
+                      and "/tkinter" in name for name in names),
+                  "the payload carries the Tkinter runtime of the graphical interface")
 
             interpreter = tar.getmember("python/bin/python3")
             check(bool(interpreter.mode & 0o111),

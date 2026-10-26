@@ -1,11 +1,10 @@
-"""Interactive menu shown when :mod:`lostpart` is started without a command.
+"""Menu interativo mostrado quando o lostpart é aberto sem comando.
 
-The command line interface is the primary interface of the tool, but a
-double click on the executable must not look like a broken program.  When
-``lostpart`` is started with no arguments it therefore opens a small menu
-that drives the same operations, and -- when the console window was created
-for the process alone, which is what happens on a double click from the
-file manager -- it waits for a key press before closing.
+A interface de linha de comando é a principal, mas um duplo clique no
+executável não pode parecer um programa quebrado.  Por isso, sem comando o
+programa abre um menu com as mesmas operações -- e, quando a janela do
+console foi criada só para ele, assinatura do duplo clique no gerenciador de
+arquivos, espera uma tecla antes de fechar.
 """
 
 from __future__ import annotations
@@ -14,28 +13,44 @@ import os
 import sys
 
 from . import __version__
+from .i18n import t
+from .scan.scanner import SCAN_MODE_FULL
 
 __all__ = ["run_interactive", "console_is_orphaned", "pause"]
 
 
-def console_is_orphaned() -> bool:
-    """True when this process is the only one attached to the console.
+#: Uma marca de ordem de bytes pode chegar à entrada quando as respostas são
+#: canalizadas por um shell do Windows.  Dependendo de como o fluxo é
+#: decodificado, a marca aparece como U+FEFF ou como os três caracteres em
+#: que os bytes UTF-8 se tornam na página de códigos 1252.
+_BOM_PREFIXES = ("\ufeff", "\u00ef\u00bb\u00bf")
 
-    A console that was created for the program alone is the signature of a
-    double click in the file manager: nobody else owns the window, so it
-    disappears the moment the program exits.
+
+def _strip_bom(text: str) -> str:
+    """Remove uma marca de ordem de bytes do começo de uma resposta."""
+    changed = True
+    while changed:
+        changed = False
+        for prefix in _BOM_PREFIXES:
+            if text.startswith(prefix):
+                text = text[len(prefix):]
+                changed = True
+                break
+    return text
+
+
+def console_is_orphaned() -> bool:
+    """True quando este processo é o único dono do console.
+
+    Um console criado só para o programa é a assinatura de um duplo clique
+    no gerenciador de arquivos: ninguém mais tem a janela, então ela
+    desaparece no instante em que o programa termina.
     """
     if os.name == "nt":
         try:
             import ctypes
 
             kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-            count = ctypes.c_ulong(0)
-            kernel32.GetConsoleProcessList(
-                ctypes.byref(ctypes.c_ulong(0)), 0
-            )
-            # Ask for the size first, then for the list.
-            kernel32.GetConsoleProcessList(None, 0)
             needed = ctypes.c_ulong(0)
             if kernel32.GetConsoleProcessList(None, ctypes.byref(needed)) == 0:
                 return False
@@ -60,11 +75,11 @@ def console_is_orphaned() -> bool:
 
 
 def pause() -> None:
-    """Wait for the user before the console window disappears."""
+    """Espera o usuário antes de a janela do console desaparecer."""
     try:
         if os.name == "nt":
             print()
-            input("Press Enter to close this window...")
+            input("Pressione Enter para fechar esta janela...")
         else:
             try:
                 with open("/dev/tty", "r") as tty:
@@ -78,26 +93,6 @@ def pause() -> None:
         pass
 
 
-#: A byte order mark can reach the input when the answers are piped in from
-#: a Windows shell.  Depending on how the stream is decoded the mark appears
-#: either as U+FEFF or as the three characters the UTF-8 bytes turn into
-#: under code page 1252.
-_BOM_PREFIXES = ("\ufeff", "\u00ef\u00bb\u00bf")
-
-
-def _strip_bom(text: str) -> str:
-    """Remove a leading byte order mark from an answer."""
-    changed = True
-    while changed:
-        changed = False
-        for prefix in _BOM_PREFIXES:
-            if text.startswith(prefix):
-                text = text[len(prefix):]
-                changed = True
-                break
-    return text
-
-
 def _prompt(text: str) -> str:
     try:
         answer = input(text)
@@ -107,69 +102,80 @@ def _prompt(text: str) -> str:
 
 
 def run_interactive() -> int:
-    """Run the interactive menu.  Returns the process exit code."""
+    """Executa o menu interativo.  Devolve o código de saída."""
     from .cli import (
+        backup_table_text,
         browse_partition_text,
         list_devices_text,
         scan_device_text,
-        backup_table_text,
     )
+    from .ui import console
 
-    print(f"lostpart {__version__} - identify and recover lost disk partitions")
-    print()
-    print("  1) List the disks and their partition tables")
-    print("  2) Scan a disk for lost partitions")
-    print("  3) Preview the contents of a partition")
-    print("  4) Back up the partition table of a disk")
-    print("  5) Show the command line options")
-    print("  0) Exit")
+    console.setup_console()
+    console.heading(t("menu.title", version=__version__))
+    options = [
+        ("1", t("menu.1")),
+        ("2", t("menu.2")),
+        ("3", t("menu.3")),
+        ("4", t("menu.4")),
+        ("5", t("menu.5")),
+        ("6", t("menu.6")),
+        ("0", t("menu.0")),
+    ]
+    for key, label in options:
+        print(f"   {console._paint(key, chr(27) + '[1;36m')}  {label}")
     print()
 
     while True:
         try:
-            choice = _prompt("Select an option: ")
+            choice = _prompt(t("menu.select"))
         except SystemExit:
             return 0
 
-        if choice in ("0", "q", "Q", "exit"):
-            print("Bye.")
+        if choice in ("0", "q", "Q", "sair"):
+            console.success(t("menu.bye"))
             return 0
 
         try:
             if choice == "1":
-                device = _prompt("Device (number, path or image file): ")
+                device = _prompt(t("menu.device"))
                 print()
                 print(list_devices_text(device or None))
             elif choice == "2":
-                device = _prompt("Device to scan: ")
-                mode = _prompt("Mode (full/quick) [full]: ") or "full"
+                device = _prompt(t("menu.device_scan"))
+                mode = _prompt(t("menu.mode")) or SCAN_MODE_FULL
                 print()
                 print(scan_device_text(device, mode))
             elif choice == "3":
-                device = _prompt("Device: ")
-                start = _prompt("First sector of the partition: ")
-                path = _prompt("Directory inside the partition (blank for the root): ")
+                device = _prompt(t("menu.device_scan"))
+                start = _prompt(t("menu.start"))
+                path = _prompt(t("menu.path"))
                 print()
                 print(browse_partition_text(device, start, path))
             elif choice == "4":
-                device = _prompt("Device: ")
-                output = _prompt("Backup file [lostpart-backup.json]: ") or "lostpart-backup.json"
+                device = _prompt(t("menu.device_scan"))
+                output = _prompt(t("menu.output")) or "lostpart-backup.json"
                 print()
                 print(backup_table_text(device, output))
             elif choice == "5":
+                from .ui.app import run_gui
+
+                run_gui()
+                return 0
+            elif choice == "6":
                 from .cli import build_parser
 
                 build_parser().print_help()
             else:
-                print("Unknown option. Choose a number between 0 and 5.")
+                console.warning(t("menu.unknown"))
         except SystemExit:
             raise
         except Exception as exc:
-            print(f"\nerror: {exc}")
+            console.error(t("menu.error", error=exc))
 
         print()
         try:
-            _prompt("Press Enter to return to the menu...")
+            _prompt(t("menu.back"))
         except SystemExit:
             return 0
         print()

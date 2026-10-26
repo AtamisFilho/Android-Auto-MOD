@@ -22,6 +22,8 @@ class LostPartitionCandidate:
     evidence: tuple[str, ...] = ()
     details: dict[str, object] = field(default_factory=dict)
     volume_name: str = ""
+    #: Logical sector size of the device the candidate was found on.
+    sector_size: int = 512
 
     @property
     def end_sector(self) -> int:
@@ -30,7 +32,8 @@ class LostPartitionCandidate:
 
     @property
     def size_bytes(self) -> int:
-        return self.sector_count
+        """Size of the partition in bytes."""
+        return self.sector_count * self.sector_size
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -38,6 +41,7 @@ class LostPartitionCandidate:
             "sector_count": self.sector_count,
             "end_sector": self.end_sector,
             "size_bytes": self.size_bytes,
+            "sector_size": self.sector_size,
             "fs_type": self.fs_type,
             "label": self.label,
             "volume_name": self.volume_name,

@@ -21,6 +21,7 @@ from abc import ABC, abstractmethod
 from typing import Final
 
 from .errors import DeviceError, DeviceReadOnlyError, PermissionError_
+from .i18n import t
 
 __all__ = [
     "RawDevice",
@@ -29,6 +30,7 @@ __all__ = [
     "LinuxBlockDevice",
     "open_device",
     "list_physical_devices",
+    "list_physical_device_specs",
 ]
 
 
@@ -85,9 +87,13 @@ class FileDevice(RawDevice):
         try:
             self._fh = open(self.path, "rb" if read_only else "r+b")
         except PermissionError as exc:
-            raise PermissionError_(f"cannot open {self.path}: {exc}") from exc
+            raise PermissionError_(
+                t("error.open_device", path=self.path, error=exc)
+            ) from exc
         except OSError as exc:
-            raise DeviceError(f"cannot open {self.path}: {exc}") from exc
+            raise DeviceError(
+                t("error.open_device", path=self.path, error=exc)
+            ) from exc
         self.size = os.fstat(self._fh.fileno()).st_size
         self.sector_size = 512
 
@@ -201,9 +207,12 @@ class WindowsPhysicalDrive(RawDevice):  # pragma: no cover - platform specific
             err = _kernel32.GetLastError()
             if err == _ERROR_ACCESS_DENIED:
                 raise PermissionError_(
-                    f"access to {self.path} was denied; run elevated (administrator)"
+                    t("error.access_denied", path=self.path)
                 )
-            raise DeviceError(f"cannot open {self.path} (Win32 error {err})")
+            raise DeviceError(
+                t("error.open_device", path=self.path,
+                  error=f"erro do Windows {err}")
+            )
         self._handle = handle
         self.sector_size = self._query_sector_size()
         self.size = self._query_size()
@@ -319,10 +328,12 @@ class LinuxBlockDevice(RawDevice):  # pragma: no cover - platform specific
             self._fd = os.open(self.path, os.O_RDONLY if read_only else os.O_RDWR)
         except PermissionError as exc:
             raise PermissionError_(
-                f"cannot open {self.path}: {exc}; run as root (or add a udev rule)"
+                t("error.open_device", path=self.path, error=exc)
             ) from exc
         except OSError as exc:
-            raise DeviceError(f"cannot open {self.path}: {exc}") from exc
+            raise DeviceError(
+                t("error.open_device", path=self.path, error=exc)
+            ) from exc
         self.sector_size = self._query_sector_size()
         self.size = self._query_size()
         self._readonly = read_only or not self._query_writable()
@@ -430,6 +441,40 @@ def list_physical_devices() -> list[RawDevice]:
     return devices
 
 
+def list_physical_device_specs() -> list[str]:
+    """Enumerate the physical disks of the machine, without opening them.
+
+    The result holds the specifications understood by :func:`open_device`,
+    so the caller can open the ones it is interested in.  Disks that cannot
+    be opened at all -- because they are locked by another program, or
+    because the user lacks the privileges -- are simply left out.
+    """
+    specs: list[str] = []
+    if os.name == "nt":  # pragma: no cover - platform specific
+        for index in range(0, 32):
+            try:
+                probe = WindowsPhysicalDrive(index, read_only=True)
+            except (DeviceError, PermissionError_):
+                continue
+            probe.close()
+            specs.append(str(index))
+        return specs
+    if os.name == "posix":  # pragma: no cover - platform specific
+        import glob
+
+        for path in sorted(glob.glob("/dev/sd*") + glob.glob("/dev/nvme*n*") +
+                           glob.glob("/dev/vd*") + glob.glob("/dev/xvd*")):
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if not stat.S_ISBLK(st.st_mode):
+                continue
+            specs.append(path)
+        return specs
+    return specs
+
+
 def open_device(spec: str, read_only: bool = False) -> RawDevice:
     """Open a device from a user supplied specification.
 
@@ -442,7 +487,7 @@ def open_device(spec: str, read_only: bool = False) -> RawDevice:
     """
     spec = spec.strip()
     if not spec:
-        raise DeviceError("empty device specification")
+        raise DeviceError(t("error.empty_device"))
 
     if spec.lower().startswith("disk:"):
         spec = spec.split(":", 1)[1].strip()
@@ -457,11 +502,11 @@ def open_device(spec: str, read_only: bool = False) -> RawDevice:
             return WindowsPhysicalDrive(index, read_only=read_only)
         if os.name == "posix":
             return LinuxBlockDevice(f"/dev/sd{index}", read_only=read_only)
-        raise DeviceError("numeric device specification is only supported on Windows and Linux")
+        raise DeviceError(t("error.numeric_device"))
 
     if os.path.exists(spec):
         if os.name == "posix" and stat.S_ISBLK(os.stat(spec).st_mode):
             return LinuxBlockDevice(spec, read_only=read_only)
         return FileDevice(spec, read_only=read_only)
 
-    raise DeviceError(f"cannot resolve device specification {spec!r}")
+    raise DeviceError(t("error.unknown_device", spec=spec))

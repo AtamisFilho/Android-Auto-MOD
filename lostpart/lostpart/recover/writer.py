@@ -26,6 +26,7 @@ from ..constants import (
 )
 from ..device import RawDevice
 from ..errors import RecoveryError, ValidationError
+from ..i18n import t
 from ..scan.model import LostPartitionCandidate, RecoveryOutcome
 from ..tables.gpt import (
     GptEntry,
@@ -104,21 +105,19 @@ def validate_candidate(
     Raises :class:`ValidationError` when the candidate must not be written.
     """
     if candidate.sector_count <= 0:
-        raise ValidationError(
-            "the candidate has no known size; a partition entry needs a length"
-        )
+        raise ValidationError(t("error.no_size"))
     if candidate.start_sector <= 0:
-        raise ValidationError("the candidate starts at sector 0, which holds the partition table")
+        raise ValidationError(t("error.start_zero"))
     if candidate.end_sector > device.total_sectors:
         raise ValidationError(
-            f"the candidate ends at sector {candidate.end_sector} but the disk only has "
-            f"{device.total_sectors} sectors"
+            t("error.out_of_range", end=candidate.end_sector,
+              total=device.total_sectors)
         )
     for entry in table.occupied:
         if candidate.start_sector < entry.end_lba and entry.start_lba < candidate.end_sector:
             raise ValidationError(
-                f"the candidate overlaps partition {entry.index} "
-                f"(sectors {entry.start_lba}..{entry.end_lba})"
+                t("error.overlap", index=entry.index, start=entry.start_lba,
+                  end=entry.end_lba)
             )
 
 
@@ -163,10 +162,7 @@ def _write_mbr_entry(
     # No primary slot left: extend the extended boot record chain.
     extended = mbr.extended_entry()
     if extended is None:
-        raise ValidationError(
-            "the MBR has no free primary slot and no extended partition to extend; "
-            "convert the disk to GPT or delete a partition first"
-        )
+        raise ValidationError(t("error.mbr_full"))
 
     container_end = extended.end_lba
     chain: list[tuple[int, bytes]] = []
@@ -184,7 +180,7 @@ def _write_mbr_entry(
         next_ebr = following.start_lba
 
     if not chain:
-        raise RecoveryError("the extended boot record chain could not be read")
+        raise RecoveryError(t("error.ebr_chain"))
 
     last_ebr_lba, last_ebr_raw = chain[-1]
     last_ebr = parse_mbr(last_ebr_raw)
@@ -194,9 +190,9 @@ def _write_mbr_entry(
     logical_start = _align_up(free_start, alignment)
     new_ebr_lba = logical_start - 1
     if new_ebr_lba < free_start:
-        raise ValidationError("not enough room inside the extended partition")
+        raise ValidationError(t("error.ebr_room"))
     if logical_start + candidate.sector_count > container_end:
-        raise ValidationError("the candidate does not fit inside the extended partition")
+        raise ValidationError(t("error.ebr_fit"))
 
     # The new EBR describes the recovered partition; its second entry is the
     # terminator of the chain.
@@ -251,7 +247,7 @@ def _write_gpt_entry(
     sector_size = device.sector_size or 512
     header = table.gpt_header
     if header is None:
-        raise RecoveryError("the GPT header could not be read")
+        raise RecoveryError(t("error.gpt_header"))
 
     array_bytes = device.read_at(
         header.partition_entry_lba * sector_size,
@@ -261,7 +257,7 @@ def _write_gpt_entry(
 
     free_index = next((e.index for e in entries if e.is_empty), None)
     if free_index is None:
-        raise ValidationError("the GPT has no free partition entry slot")
+        raise ValidationError(t("error.gpt_full"))
 
     attributes = 0
     if bootable:
@@ -349,15 +345,18 @@ def recover_partition(
     if table is None:
         table = load_partition_table(device)
     if table is None:
-        raise RecoveryError("the disk has no partition table to update")
+        raise RecoveryError(t("error.no_table"))
 
     validate_candidate(device, table, candidate)
 
     if dry_run:
-        action = (
-            f"would write an {table.kind.upper()} entry for {candidate.fs_type} "
-            f"at sector {candidate.start_sector} "
-            f"({candidate.sector_count} sectors, {candidate.size_bytes / (1024 * 1024):.1f} MiB)"
+        action = t(
+            "recover.would_write",
+            table=table.kind.upper(),
+            fs=candidate.fs_type,
+            start=candidate.start_sector,
+            sectors=candidate.sector_count,
+            size=f"{candidate.size_bytes / (1024 * 1024):.1f} MiB",
         )
         return RecoveryOutcome(
             candidate=candidate,
@@ -367,7 +366,7 @@ def recover_partition(
         )
 
     if device.is_readonly:
-        raise RecoveryError("the device is read-only")
+        raise RecoveryError(t("error.readonly"))
 
     if table.kind == TABLE_TYPE_GPT:
         index, written = _write_gpt_entry(device, table, candidate, bootable)
@@ -378,9 +377,13 @@ def recover_partition(
     return RecoveryOutcome(
         candidate=candidate,
         success=True,
-        message=(
-            f"wrote a {table.kind.upper()} entry at slot {index} for {candidate.fs_type} "
-            f"({label}) starting at sector {candidate.start_sector}"
+        message=t(
+            "recover.wrote",
+            table=table.kind.upper(),
+            index=index,
+            fs=candidate.fs_type,
+            label=label,
+            start=candidate.start_sector,
         ),
         table_type=table.kind,
         partition_index=index,

@@ -195,6 +195,7 @@ class Scanner:
             evidence=best.evidence,
             details=dict(best.details),
             volume_name=str(best.details.get("volume_label", "") or ""),
+            sector_size=self.device.sector_size or 512,
         )
 
         if best.fs_type == "ntfs" and self.verify_ntfs_bitmap:

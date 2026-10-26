@@ -48,7 +48,7 @@ def test_recover_writes_nothing_in_dry_run_mode():
     before = bytes(device.buffer)
     outcome = recover_partition(device, candidate, table, dry_run=True)
     assert outcome.success
-    assert "would write" in outcome.message
+    assert "Seria gravada uma entrada" in outcome.message
     assert bytes(device.buffer) == before
     assert device.writes == []
 
@@ -108,7 +108,7 @@ def test_recover_refuses_a_candidate_that_overlaps_an_existing_partition():
     try:
         validate_candidate(device, table, candidate)
     except Exception as exc:
-        assert "overlaps" in str(exc)
+        assert "sobrepõe" in str(exc)
     else:  # pragma: no cover - the call must fail
         raise AssertionError("the overlapping candidate was accepted")
 
@@ -123,7 +123,7 @@ def test_recover_refuses_a_candidate_without_a_size():
     try:
         validate_candidate(device, table, candidate)
     except Exception as exc:
-        assert "size" in str(exc)
+        assert "tamanho" in str(exc)
     else:  # pragma: no cover - the call must fail
         raise AssertionError("the candidate without a size was accepted")
 
