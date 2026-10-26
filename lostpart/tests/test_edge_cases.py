@@ -556,7 +556,7 @@ def test_a_table_row_shorter_than_the_header_does_not_crash_the_console():
 # --------------------------------------------------------------------------
 
 
-def test_the_backup_of_a_gpt_covers_the_right_sectors():
+def test_the_backup_of_a_gpt_covers_the_right_sectors(tmp_path):
     """The backup has to hold the array that is really on the disk.
 
     The backup array lives in the sectors before the backup header.  One
@@ -571,7 +571,7 @@ def test_the_backup_of_a_gpt_covers_the_right_sectors():
     header = table.gpt_header
     assert header is not None
 
-    backup = create_backup(device, table, "backup.json", device_id="0")
+    backup = create_backup(device, table, tmp_path / "backup.json", device_id="0")
     array_sectors = (
         header.partition_entry_count * header.partition_entry_size + 511
     ) // 512

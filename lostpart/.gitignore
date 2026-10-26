@@ -13,4 +13,6 @@ lostpart-backups/
 *.img
 *.dd
 *.db
+*.json
+!package.json
 installer/lostpart.generated.iss
