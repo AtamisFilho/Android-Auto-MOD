@@ -54,4 +54,16 @@ object Prefs {
     fun setAllowVideoWithoutSensor(context: Context, value: Boolean) {
         sp(context).edit().putBoolean("no_sensor_mode", value).apply()
     }
+
+    // ---------- Exportação p/ pendrive ----------
+
+    /** Pasta (SAF) do pendrive escolhida para exportar vídeos. */
+    fun exportTreeUri(context: Context): String? =
+        sp(context).getString("export_tree_uri", null)
+
+    fun setExportTreeUri(context: Context, uri: String?) {
+        sp(context).edit().apply {
+            if (uri == null) remove("export_tree_uri") else putString("export_tree_uri", uri)
+        }.apply()
+    }
 }

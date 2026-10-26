@@ -13,12 +13,18 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
 
+    <!-- Localização: trava de velocidade por GPS do Modo Espelho (MirrorLink).
+         Usada apenas com o app aberto — nada de localização em background. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <application
         android:name=".CockpitApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
+        android:requestLegacyExternalStorage="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.Cockpit">
 
@@ -40,6 +46,26 @@
 
         <activity
             android:name=".phone.TestPlayerActivity"
+            android:exported="false" />
+
+        <!-- Modo Espelho (MirrorLink): player fullscreen que o carro espelha.
+             Tem íCONE PRÓPRIO no launcher ("Cockpit Player") para abrir
+             direto no celular que fica conectado no carro. -->
+        <activity
+            android:name=".phone.MirrorPlayerActivity"
+            android:exported="true"
+            android:label="Cockpit Player"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Exportação p/ pendrive (player nativo da central do carro) -->
+        <activity
+            android:name=".phone.ExportActivity"
             android:exported="false" />
 
         <!-- ============ App da tela do carro (Car App Library) ============

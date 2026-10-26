@@ -22,10 +22,56 @@
     <string name="car_step3">3. Para ouvir músicas, procure \u201CAircross Cockpit\u201D na lista de apps de mídia (junto ao Spotify).</string>
     <string name="switch_no_sensor">Permitir vídeo mesmo sem sensor de velocidade (não recomendado)</string>
 
-    <string name="section_test">4 · Testar no celular</string>
+    <string name="section_test">5 · Testar no celular</string>
     <string name="btn_test">Abrir testador de mídia</string>
     <string name="test_hint">Reproduza qualquer vídeo/áudio da biblioteca para validar antes de ir ao carro.</string>
 
     <string name="footer_note">Guia completo de compilação e instalação no README.md do projeto.</string>
     <string name="btn_back">Voltar</string>
+
+    <!-- Permissão de localização (trava por GPS do Modo Espelho) -->
+    <string name="perm_location">Localização (trava de velocidade no Modo Espelho)</string>
+
+    <!-- Modo Espelho (MirrorLink) -->
+    <string name="section_mirror">4 · Espelho e pendrive (MirrorLink)</string>
+    <string name="mirror_title">Cockpit Player · Modo Espelho</string>
+    <string name="btn_mirror">Abrir Modo Espelho (player na tela do celular)</string>
+    <string name="mirror_hint">Use no celular que fica espelhado na tela do carro (MirrorLink) ou num suporte. A trava de velocidade usa o GPS do próprio celular.</string>
+    <string name="btn_export">Exportar vídeos para o pendrive</string>
+    <string name="gps_state_stopped">GPS: carro parado — vídeo liberado</string>
+    <string name="gps_state_moving">GPS: em movimento — vídeo bloqueado</string>
+    <string name="gps_state_waiting">GPS: aguardando sinal…</string>
+    <string name="gps_state_unavailable">GPS: indisponível</string>
+    <string name="blocked_by_speed">Bloqueado: carro em movimento</string>
+    <string name="seek_back">−10s</string>
+    <string name="seek_fwd">+10s</string>
+    <string name="back_to_list">◀ Lista</string>
+    <string name="lock_moving_title">Carro em movimento</string>
+    <string name="lock_moving_sub">O vídeo só é liberado com o carro parado. Saia da estrada para assistir.</string>
+    <string name="lock_waiting_title">Aguardando GPS</string>
+    <string name="lock_waiting_sub">Procurando sinal para confirmar que o carro está parado…\n(Se estiver em local fechado, ative \u201CPermitir vídeo sem sensor\u201D no app principal.)</string>
+    <string name="lock_unavailable_title">GPS indisponível</string>
+    <string name="lock_unavailable_sub">Ative a localização do celular ou permita vídeo sem sensor no app principal.</string>
+    <string name="lock_grant">Conceder permissão</string>
+    <string name="lock_enable_gps">Ativar localização</string>
+    <string name="lock_retry">Tentar novamente</string>
+
+    <!-- Exportar p/ pendrive -->
+    <string name="export_title">Exportar p/ pendrive</string>
+    <string name="export_intro">Copia os vídeos no formato que a central do carro toca (MP4/H.264 + AAC). Cada arquivo é verificado para tocar também nos players nativos do celular (Galaxy/Meus Arquivos/Ficheiros).</string>
+    <string name="export_section_target">1 · Destino</string>
+    <string name="export_no_target">Nenhum pendrive escolhido.</string>
+    <string name="export_target_ok">Destino: %1$s</string>
+    <string name="export_pick">Escolher pendrive / pasta</string>
+    <string name="export_target_hint">Pendrive FAT32 (≤ 32 GB), de preferência na pasta VIDEO. Ligue o pendrive com um adaptador OTG.</string>
+    <string name="export_section_videos">2 · Vídeos</string>
+    <string name="export_batch">Exportar os 20 mais recentes do WhatsApp</string>
+    <string name="export_row_hint">Ou toque num vídeo para exportar só ele.</string>
+    <string name="export_section_report">3 · Relatório</string>
+    <string name="export_report_empty">O resultado de cada exportação aparece aqui.</string>
+    <string name="export_copying">Copiando %1$s…</string>
+    <string name="export_progress">Copiando %1$d de %2$d — %3$s…</string>
+    <string name="export_nothing">Nenhum vídeo do WhatsApp encontrado.</string>
+    <string name="export_need_target">Escolha primeiro o pendrive (botão acima).</string>
+    <string name="export_summary">Resumo: %1$d copiado(s) · %2$d com problema</string>
 </resources>

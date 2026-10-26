@@ -32,6 +32,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvPermVideo: android.widget.TextView
     private lateinit var tvPermAudio: android.widget.TextView
     private lateinit var tvPermNotif: android.widget.TextView
+    private lateinit var tvPermLocation: android.widget.TextView
     private lateinit var tvCounts: android.widget.TextView
     private lateinit var switchNoSensor: MaterialSwitch
 
@@ -42,6 +43,7 @@ class MainActivity : AppCompatActivity() {
         tvPermVideo = findViewById(R.id.tvPermVideo)
         tvPermAudio = findViewById(R.id.tvPermAudio)
         tvPermNotif = findViewById(R.id.tvPermNotif)
+        tvPermLocation = findViewById(R.id.tvPermLocation)
         tvCounts = findViewById(R.id.tvCounts)
         switchNoSensor = findViewById(R.id.switchNoSensor)
 
@@ -49,6 +51,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btnScan).setOnClickListener { rescan() }
         findViewById<MaterialButton>(R.id.btnTest).setOnClickListener {
             startActivity(Intent(this, TestPlayerActivity::class.java))
+        }
+        findViewById<MaterialButton>(R.id.btnMirror).setOnClickListener {
+            startActivity(Intent(this, MirrorPlayerActivity::class.java))
+        }
+        findViewById<MaterialButton>(R.id.btnExport).setOnClickListener {
+            startActivity(Intent(this, ExportActivity::class.java))
         }
 
         switchNoSensor.isChecked = Prefs.allowVideoWithoutSensor(this)
@@ -72,9 +80,14 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.READ_MEDIA_VIDEO,
                 Manifest.permission.READ_MEDIA_AUDIO,
                 Manifest.permission.POST_NOTIFICATIONS,
+                // Localização: trava de velocidade por GPS do Modo Espelho
+                Manifest.permission.ACCESS_FINE_LOCATION,
             )
         } else {
-            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            arrayOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            )
         }
         val missing = wanted.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -102,6 +115,9 @@ class MainActivity : AppCompatActivity() {
             mark(has(Manifest.permission.READ_MEDIA_AUDIO) || has(Manifest.permission.READ_EXTERNAL_STORAGE))
         tvPermNotif.text = "${getString(R.string.perm_notif)} — " +
             mark(has(Manifest.permission.POST_NOTIFICATIONS) || Build.VERSION.SDK_INT < 33)
+        tvPermLocation.text = "${getString(R.string.perm_location)} — " +
+            mark(has(Manifest.permission.ACCESS_FINE_LOCATION) ||
+                has(Manifest.permission.ACCESS_COARSE_LOCATION))
 
         // Contagens (scan em background; primeira vez pode demorar ~1s)
         tvCounts.text = getString(R.string.scan_hint)

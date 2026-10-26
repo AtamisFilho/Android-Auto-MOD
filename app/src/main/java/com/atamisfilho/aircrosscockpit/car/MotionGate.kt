@@ -14,14 +14,18 @@ import java.util.concurrent.CopyOnWriteArraySet
 import kotlin.math.abs
 
 /**
- * Monitor de movimento do veículo via sensor de velocidade do Android Auto.
+ * Monitor de movimento do veículo — trava de segurança do vídeo.
  *
- * O vídeo na tela do carro só é liberado com o carro PARADO (padrão de
- * segurança da plataforma). Estados:
- *  - STOPPED     → sensor OK, carro parado → vídeo liberado
- *  - MOVING      → sensor OK, carro em movimento → vídeo bloqueado
- *  - UNKNOWN     → aguardando primeira leitura do sensor
- *  - UNAVAILABLE → o carro não reporta velocidade → respeita o ajuste
+ * Duas fontes possíveis (mesma regra: vídeo só com o carro PARADO):
+ *  1. Android Auto — sensor de velocidade do carro (CarHardwareManager);
+ *  2. GPS do próprio celular ([startGps]) — usado no Modo Espelho
+ *     (MirrorLink), onde não existe sessão do Android Auto.
+ *
+ * Estados:
+ *  - STOPPED     → fonte OK, carro parado → vídeo liberado
+ *  - MOVING      → fonte OK, carro em movimento → vídeo bloqueado
+ *  - UNKNOWN     → aguardando primeira leitura (vídeo bloqueado)
+ *  - UNAVAILABLE → sem sensor/GPS disponível → respeita o ajuste
  *                  "Permitir vídeo sem sensor" feito no celular
  */
 object MotionGate {
@@ -35,6 +39,7 @@ object MotionGate {
     private val listeners = CopyOnWriteArraySet<(State) -> Unit>()
     private val main = Handler(Looper.getMainLooper())
     private var carInfo: CarInfo? = null
+    private var gps: GpsSpeedProvider? = null
 
     /** Km/h a partir do qual consideramos o carro em movimento. */
     private const val MOVING_KMH = 3f
@@ -80,9 +85,39 @@ object MotionGate {
         main.postDelayed(timeout, 6000)
     }
 
+    /**
+     * Modo Espelho (MirrorLink): usa o GPS do próprio celular como fonte
+     * de velocidade. Assume que não há sessão do Android Auto simultânea
+     * (o carro do usuário só tem MirrorLink).
+     */
+    fun startGps(context: android.content.Context) {
+        stop()
+        update(State.UNKNOWN)
+        val provider = GpsSpeedProvider(context)
+        val ok = provider.start { kmh ->
+            // null = ainda sem fix com velocidade → mantém UNKNOWN (bloqueado).
+            if (kmh != null) {
+                update(if (kmh > MOVING_KMH) State.MOVING else State.STOPPED)
+            }
+        }
+        gps = provider
+        if (!ok) {
+            // Sem permissão de localização ou GPS desligado.
+            update(State.UNAVAILABLE)
+            return
+        }
+        // GPS partindo do zero (cold start) pode demorar; enquanto isso o
+        // estado UNKNOWN já mantém o vídeo bloqueado. Depois de 20 s sem
+        // nenhum fix, cai para UNAVAILABLE (vale o ajuste do celular).
+        main.removeCallbacks(timeout)
+        main.postDelayed(timeout, 20_000)
+    }
+
     fun stop() {
         runCatching { carInfo?.removeSpeedListener(speedListener) }
         carInfo = null
+        gps?.stop()
+        gps = null
         main.removeCallbacks(timeout)
     }
 

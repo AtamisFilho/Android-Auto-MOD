@@ -1,9 +1,21 @@
 # Aircross Cockpit 🚗
 
-**App Android Auto pessoal para Citroën C4 Aircross 2019 + Samsung S25 Ultra (sem root).**
+**App pessoal para Citroën C4 Aircross 2019 + Samsung S25 Ultra (sem root).**
 
-Um app exclusivo, do seu jeito, que aparece na tela do carro junto aos apps nativos do
-Android Auto (AA), com:
+> ### ⚠️ Conexão com o carro — leia primeiro
+> A central do C4 Aircross 2019 só fala **MirrorLink** (não tem Android Auto), e o
+> **S25 Ultra não tem servidor MirrorLink** (Samsung removeu o recurso do One UI;
+> o padrão foi oficialmente encerrado pelo consórcio CCC em 2023). Portanto:
+>
+> | Caminho | Como | Qualidade | Funciona hoje? |
+> |---|---|---|---|
+> | **B · Pendrive USB** (recomendado) | App exporta os vídeos → player **nativo da central** toca do USB | Full | ✅ com o S25 Ultra + OTG |
+> | **A · Celular antigo espelhado** | Galaxy S8/S9 (Android ≤ 9) roda o **Modo Espelho** → central espelha via MirrorLink | ~10–20 fps (VNC) | Precisa de um 2º celular |
+> | **C · Trocar a central** | Central aftermarket c/ Android Auto → o app AA original volta 100% | Full | Compra futura |
+>
+> **Guia completo:** [`docs/GUIA_MIRRORLINK.md`](docs/GUIA_MIRRORLINK.md)
+
+Um app exclusivo, do seu jeito, com:
 
 | Função | Onde aparece | Como funciona |
 |---|---|---|
@@ -12,6 +24,8 @@ Android Auto (AA), com:
 | **Favoritos** (estrela no player) | Idem | Funciona para vídeos |
 | **Músicas do celular** | Lista de apps de **mídia** do AA (junto ao Spotify) | Player nativo de mídia do AA, controles no volante, notificação com controles |
 | **Áudios do WhatsApp** (mensagens de voz) | Idem | Ouça os áudios recebidos pelo alto-falante do carro |
+| **Modo Espelho** (v1.1) | Player fullscreen na tela do **celular** (espelhado via MirrorLink ou suporte) | Trava de velocidade por **GPS** do próprio celular; alavancas gigantes p/ uso no carro |
+| **Exportar p/ pendrive** (v1.1) | Player **nativo da central** lê o USB | MP4/H.264+AAC garantido; cada arquivo é **validado** p/ tocar também nos players nativos do celular |
 
 > **YouTube:** intencionalmente **não** faz parte deste app (extrair vídeos do YouTube
 > viola os termos de serviço da Google). Para YouTube na tela do carro, use o
@@ -57,7 +71,8 @@ repositório (já está no `.gitignore`).
 1. Copie o `app-debug.apk` para o celular (Google Drive, cabo, etc.).
 2. Toque no APK → "Instalar de fontes desconhecidas" (só na 1ª vez).
 3. Abra **Aircross Cockpit** e toque em **Conceder permissões**
-   (vídeos, músicas, notificações).
+   (vídeos, músicas, notificações, localização — usada pela trava de GPS
+   do Modo Espelho).
 4. Use o **Testador de mídia** para conferir que a biblioteca aparece.
 
 ## 4 · Liberar o app na tela do carro (Android Auto — modo desenvolvedor)
@@ -76,6 +91,8 @@ Apps que não vêm da Play Store precisam do AA em modo desenvolvedor:
 
 - **Vídeo só parado:** o app lê o **sensor de velocidade** do carro via AA
   (`CarHardwareManager`). Carro andando → vídeo pausa sozinho.
+- **Modo Espelho (v1.1):** sem Android Auto, a mesma trava usa o **GPS do celular**
+  (`MotionGate.startGps`): acima de ~3 km/h o vídeo bloqueia com tela cheia.
 - Se a sua central não reportar velocidade, o vídeo fica bloqueado até você ativar
   **"Permitir vídeo sem sensor"** no app do celular (use com consciência).
 - **Áudio** (músicas/áudios WhatsApp) toca normalmente em movimento — igual Spotify.
@@ -125,7 +142,8 @@ app/src/main/java/com/atamisfilho/aircrosscockpit/
 │   ├── HomeScreen.kt              grade de pastas
 │   ├── FolderScreen.kt            lista de arquivos da pasta
 │   ├── PlayerScreen.kt            player (NavigationTemplate + Surface em tela cheia)
-│   ├── MotionGate.kt              sensor de velocidade → trava de movimento
+│   ├── MotionGate.kt              trava de movimento (sensor AA **ou** GPS)
+│   ├── GpsSpeedProvider.kt        velocidade por GPS (Modo Espelho)
 │   ├── VideoPlayerController.kt   ExoPlayer global (fila, favoritos, retomada)
 │   └── CarIcons.kt                ícones
 ├── media/                         Biblioteca + app de MÍDIA do AA
@@ -133,8 +151,10 @@ app/src/main/java/com/atamisfilho/aircrosscockpit/
 │   └── CockpitMediaService.kt     MediaLibraryService (media3)
 ├── phone/                          UI no CELULAR
 │   ├── MainActivity.kt            permissões/checklist
-│   └── TestPlayerActivity.kt      testador de reprodução
-└── util/                          Prefs (favoritos/posições), Format
+│   ├── TestPlayerActivity.kt      testador de reprodução
+│   ├── MirrorPlayerActivity.kt    Modo Espelho (player fullscreen + trava GPS)
+│   └── ExportActivity.kt          exportação p/ pendrive (cópia/remux/verificação)
+└── util/                          Prefs (favoritos/posições/pendrive), Format
 ```
 
 ## 10 · Solução de problemas
@@ -144,6 +164,9 @@ app/src/main/java/com/atamisfilho/aircrosscockpit/
 | App não aparece na grade do AA | Modo desenvolvedor/fontes desconhecidas desligado | Refaça a seção 4 |
 | Aparece, mas vídeo fica preto | Central não entregou Surface (ou vídeo protegido DRM) | Teste um vídeo gravado pela câmera; se persistir, me avise |
 | "Aguardando o sensor…" | Central não reporta velocidade | Ative "Permitir vídeo sem sensor" ou mantenha bloqueado |
+| "Aguardando GPS" no Modo Espelho | Primeiro fix de GPS demora (local fechado) | Aguarde ao ar livre (~30 s) ou ative "Permitir vídeo sem sensor" |
+| Central não lê o pendrive | Formato/pasta errados | FAT32 ≤ 32 GB, exporte p/ a pasta VIDEO — veja `docs/GUIA_MIRRORLINK.md` |
+| Vídeo exportado toca no celular, não no carro | Codec pouco comum (HEVC) | Exporte de novo (relatório marca ⚠); teste com vídeo do WhatsApp |
 | Pastas vazias | Permissões negadas | Abra o app no celular → Conceder permissões → Escanear |
 | Erro de compilação em `MotionGate.kt` | Versão de lib diferente do previsto | Me mande a mensagem de erro — correção rápida |
 | WhatsApp não aparece nas pastas | Pasta fora do padrão | Me diga o caminho (Gerenciador de arquivos) |

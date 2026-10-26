@@ -9,10 +9,13 @@ android {
 
     defaultConfig {
         applicationId = "com.atamisfilho.aircrosscockpit"
-        minSdk = 29          // Android 10+ (seu S25 Ultra está muito acima disso)
+        // Android 9+ — necessário porque os celulares que ainda têm servidor
+        // MirrorLink (Galaxy S8/S9/Note8/Note9) rodam no máximo o Android 9.
+        // (O S25 Ultra continua 100% suportado; minSdk baixo só amplia.)
+        minSdk = 28
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     buildTypes {
