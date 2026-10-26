@@ -12,6 +12,7 @@ Run it after ``python scripts/build.py all``::
 
 from __future__ import annotations
 
+import hashlib
 import struct
 import sys
 import tarfile
@@ -139,6 +140,29 @@ def verify_installer() -> None:
     check(len(data) > 1_000_000, f"has a plausible size ({len(data)} bytes)")
 
 
+def verify_checksums() -> None:
+    """The published checksum list must describe the files next to it."""
+    print("Checksum list")
+    path = DIST / "SHA256SUMS.txt"
+    if not check(path.is_file(), f"{path.name} exists"):
+        return
+    listed: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        digest, _, name = line.partition("  ")
+        listed[name.strip()] = digest.strip()
+    check(bool(listed), "the list is not empty")
+    for name in ("lostpart-installer.exe", "lostpart-linux-x64",
+                 "lostpart-windows-x64.exe"):
+        target = DIST / name
+        if not target.is_file():
+            continue
+        actual = hashlib.sha256(target.read_bytes()).hexdigest()
+        check(listed.get(name) == actual,
+              f"the listed checksum of {name} matches the file")
+
+
 def main() -> int:
     print(f"verifying the release artefacts in {DIST}\n")
     verify_windows()
@@ -146,6 +170,8 @@ def main() -> int:
     verify_installer()
     print()
     verify_linux()
+    print()
+    verify_checksums()
     print()
     if failures:
         print(f"{len(failures)} of {checks} checks failed:")

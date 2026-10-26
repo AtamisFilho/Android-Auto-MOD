@@ -21,11 +21,13 @@ Usage::
     python scripts/build.py windows
     python scripts/build.py linux
     python scripts/build.py all
+    python scripts/build.py checksums
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import shutil
@@ -305,6 +307,31 @@ def build_installer() -> Path:
     return target
 
 
+def write_checksums() -> Path:
+    """Regenerate ``dist/SHA256SUMS.txt`` from the artefacts that exist.
+
+    The file is written on every build so that it can never describe an
+    older release: a checksum list that does not match the files next to
+    it is worse than no checksum list at all.
+    """
+    names = [
+        "lostpart-installer.exe",
+        "lostpart-linux-x64",
+        "lostpart-windows-x64.exe",
+    ]
+    lines = []
+    for name in names:
+        path = DIST / name
+        if not path.is_file():
+            continue
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        lines.append(f"{digest}  {name}\n")
+    target = DIST / "SHA256SUMS.txt"
+    target.write_text("".join(lines), encoding="utf-8")
+    log(f"wrote {target} ({len(lines)} file(s))")
+    return target
+
+
 # --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
@@ -314,9 +341,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build the lostpart binaries.")
     parser.add_argument(
         "target",
-        choices=["windows", "linux", "installer", "all"],
+        choices=["windows", "linux", "installer", "all", "checksums"],
         help="windows: the portable executable; linux: the static ELF; "
-             "installer: the Inno Setup installer; all: everything",
+             "installer: the Inno Setup installer; all: everything; "
+             "checksums: only rewrite dist/SHA256SUMS.txt",
     )
     args = parser.parse_args(argv)
 
@@ -326,6 +354,8 @@ def main(argv: list[str] | None = None) -> int:
         build_linux()
     if args.target in ("installer", "all"):
         build_installer()
+    if args.target in ("checksums", "all"):
+        write_checksums()
     return 0
 
 
