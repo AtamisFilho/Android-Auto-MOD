@@ -56,6 +56,11 @@ ler inglês nem entender o jargão de disco para usar a ferramenta.
 
 ### Fixed
 
+- O `dist/SHA256SUMS.txt` era um arquivo órfão, escrito uma vez e nunca mais
+  regenerado — a versão 0.3.0 chegou a publicar a lista de checksums da 0.2.0
+  ao lado dos binários novos.  O `scripts/build.py` agora reescreve a lista a
+  cada build, e o `scripts/verify_release.py` confere cada checksum contra o
+  arquivo correspondente, que é o que teria pegado isso.
 - As telas da interface usavam `place` com o `anchor` padrão (`center`), o que
   centralizava cada rótulo em vez de alinhá-lo no canto superior esquerdo.  A
   tela inicial ficava com o título cortado e o botão fora da janela.  O
